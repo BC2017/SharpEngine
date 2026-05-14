@@ -42,6 +42,7 @@ public sealed class GameClient : IGameApplication
     private int _loadedRadius;
     private int _savedChunkCount;
     private int _selectedHotbarSlot;
+    private string _worldUiStatus = "WORLD READY";
 
     public GameClient(BlockRegistry blocks)
     {
@@ -80,6 +81,16 @@ public sealed class GameClient : IGameApplication
         if (input.SelectedHotbarSlot >= 0 && input.SelectedHotbarSlot < _hotbarBlocks.Length)
         {
             _selectedHotbarSlot = input.SelectedHotbarSlot;
+        }
+
+        if (input.SaveWorld)
+        {
+            SaveLoadedWorld();
+        }
+
+        if (input.CreateWorld)
+        {
+            CreateNewWorld();
         }
 
         UpdateSelection();
@@ -198,7 +209,9 @@ public sealed class GameClient : IGameApplication
             : "NONE";
 
         string motionText = _player.IsSwimming ? "SWIM" : _player.IsCrouching ? "CROUCH" : _player.IsGrounded ? "GROUND" : "AIR";
-        return $"SEL: {selectionText}\nHOTBAR: {_selectedHotbarSlot + 1}/{selectedBlockName}  EDITS: {_editCount}\nCHUNKS: {_chunks.Count}  RADIUS: {_loadedRadius}  SAVED: {_savedChunkCount}\nMOTION: {motionText}\nVEL: {_player.Velocity.X:0.0},{_player.Velocity.Y:0.0},{_player.Velocity.Z:0.0}";
+        string worldName = _worldSaveStore?.Metadata.WorldName ?? "NONE";
+        string worldId = _worldSaveStore?.WorldId ?? "NONE";
+        return $"SEL: {selectionText}\nHOTBAR: {_selectedHotbarSlot + 1}/{selectedBlockName}  EDITS: {_editCount}\nCHUNKS: {_chunks.Count}  RADIUS: {_loadedRadius}  SAVED: {_savedChunkCount}\nMOTION: {motionText}\nVEL: {_player.Velocity.X:0.0},{_player.Velocity.Y:0.0},{_player.Velocity.Z:0.0}\nWORLD: {worldName}  ID: {worldId}\nF5 SAVE WORLD  F9 NEW WORLD\nSTATUS: {_worldUiStatus}";
     }
 
     private PlayerInput CreatePlayerInput(InputSnapshot input)
@@ -298,6 +311,41 @@ public sealed class GameClient : IGameApplication
         }
     }
 
+    private void SaveLoadedWorld()
+    {
+        if (_worldSaveStore is null)
+        {
+            _worldUiStatus = "SAVE UNAVAILABLE";
+            return;
+        }
+
+        _worldSaveStore.SaveChunks(_chunks.Values);
+        _savedChunkCount = _worldSaveStore.SavedChunkCount;
+        _worldUiStatus = $"SAVED {_savedChunkCount} CHUNKS";
+    }
+
+    private void CreateNewWorld()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        int seed = CreateNewWorldSeed();
+        TerrainGeneratorSettings settings = CreateTerrainGeneratorSettings(seed, waterLevel: 4);
+        string worldId = $"world-{now:yyyyMMdd-HHmmss-fffffff}";
+        _worldSaveStore = WorldSaveStore.OpenOrCreate(
+            Path.Combine(GetWorldsRootPath(), worldId),
+            $"World {now:HHmmss}",
+            settings);
+        _terrainGenerator = new TerrainGenerator(settings);
+        _chunks.Clear();
+        _editCount = 0;
+        _savedChunkCount = _worldSaveStore.SavedChunkCount;
+        LoadInitialChunks(_loadedRadius == 0 ? 2 : _loadedRadius);
+        MovePlayerToSpawn();
+        SyncCameraToPlayer();
+        RebuildChunkMesh();
+        UpdateSelection();
+        _worldUiStatus = $"CREATED {worldId}";
+    }
+
     private static TerrainGeneratorSettings CreateTerrainGeneratorSettings(int seed, int waterLevel)
     {
         return new TerrainGeneratorSettings(
@@ -315,11 +363,20 @@ public sealed class GameClient : IGameApplication
 
     private static string GetDefaultWorldPath()
     {
+        return Path.Combine(GetWorldsRootPath(), "dev-world");
+    }
+
+    private static string GetWorldsRootPath()
+    {
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "SharpEngine",
-            "worlds",
-            "dev-world");
+            "worlds");
+    }
+
+    private static int CreateNewWorldSeed()
+    {
+        return HashCode.Combine(DateTimeOffset.UtcNow.UtcTicks, Environment.TickCount);
     }
 
     private bool IsLoadedBlock(BlockPosition position)

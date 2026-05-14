@@ -30,6 +30,8 @@ public sealed class WorldSaveStore
 
     public WorldMetadata Metadata { get; private set; }
 
+    public string WorldId => Path.GetFileName(RootPath);
+
     public int SavedChunkCount => Directory.Exists(_chunksPath)
         ? Directory.EnumerateFiles(_chunksPath, $"*{ChunkFileExtension}", SearchOption.TopDirectoryOnly).Count()
         : 0;
@@ -90,6 +92,18 @@ public sealed class WorldSaveStore
         using FileStream file = File.Create(chunkPath);
         using GZipStream gzip = new(file, CompressionLevel.Fastest);
         JsonSerializer.Serialize(gzip, data, JsonOptions);
+    }
+
+    public void SaveChunks(IEnumerable<Chunk> chunks)
+    {
+        ArgumentNullException.ThrowIfNull(chunks);
+
+        foreach (Chunk chunk in chunks)
+        {
+            SaveChunk(chunk);
+        }
+
+        TouchLastPlayed();
     }
 
     public void TouchLastPlayed()
