@@ -13,6 +13,9 @@ camera.Update(new InputSnapshot(
     MoveUp: false,
     MoveDown: false,
     Sprint: false,
+    BreakBlock: false,
+    PlaceBlock: false,
+    SelectedHotbarSlot: -1,
     MouseDeltaX: 0.0f,
     MouseDeltaY: 0.0f), deltaSeconds: 1.0f);
 
@@ -27,6 +30,9 @@ camera.Update(new InputSnapshot(
     MoveUp: false,
     MoveDown: false,
     Sprint: true,
+    BreakBlock: false,
+    PlaceBlock: false,
+    SelectedHotbarSlot: -1,
     MouseDeltaX: 0.0f,
     MouseDeltaY: 0.0f), deltaSeconds: 1.0f);
 

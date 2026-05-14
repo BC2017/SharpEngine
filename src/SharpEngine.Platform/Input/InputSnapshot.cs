@@ -9,5 +9,8 @@ public readonly record struct InputSnapshot(
     bool MoveUp,
     bool MoveDown,
     bool Sprint,
+    bool BreakBlock,
+    bool PlaceBlock,
+    int SelectedHotbarSlot,
     float MouseDeltaX,
     float MouseDeltaY);

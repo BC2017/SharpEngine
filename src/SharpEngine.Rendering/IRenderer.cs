@@ -6,5 +6,7 @@ public interface IRenderer : IDisposable
 
     void Resize(int width, int height);
 
+    void SetSelection(VoxelSelectionBox? selection);
+
     void RenderFrame(DebugCamera camera, TimeSpan totalTime, DebugOverlaySnapshot debugOverlay);
 }

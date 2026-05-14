@@ -6,6 +6,9 @@ using SharpEngine.Rendering;
 using SharpEngine.World.Blocks;
 using SharpEngine.World.Chunks;
 using SharpEngine.World.Meshing;
+using SharpEngine.World.Raycasting;
+
+using NumericsVector3 = System.Numerics.Vector3;
 
 namespace SharpEngine.Client;
 
@@ -13,10 +16,24 @@ public sealed class GameClient : IGameApplication
 {
     private readonly BlockRegistry _blocks;
     private readonly DebugFrameTimer _frameTimer = new();
+    private readonly ushort[] _hotbarBlocks =
+    [
+        BlockIds.Grass,
+        BlockIds.Dirt,
+        BlockIds.Stone,
+        BlockIds.Sand,
+        BlockIds.Log,
+        BlockIds.Leaves
+    ];
+
     private readonly ChunkMesher _mesher = new();
     private DebugCamera _camera = new(new Vector3(8.0f, 7.0f, 28.0f));
+    private Chunk? _chunk;
     private OpenGlDebugRenderer? _renderer;
+    private VoxelRaycastHit? _selection;
+    private int _editCount;
     private int _fixedTicks;
+    private int _selectedHotbarSlot;
 
     public GameClient(BlockRegistry blocks)
     {
@@ -26,9 +43,8 @@ public sealed class GameClient : IGameApplication
     public void Load(PlatformContext context)
     {
         _renderer = new OpenGlDebugRenderer(context.Width, context.Height);
-        Chunk chunk = CreateDemoChunk();
-        ChunkMeshData mesh = _mesher.BuildMesh(chunk, _blocks);
-        _renderer.LoadChunkMesh(VoxelMeshConverter.ToRenderMesh(mesh));
+        _chunk = CreateDemoChunk();
+        RebuildChunkMesh();
     }
 
     public void FixedUpdate(GameTime time)
@@ -39,6 +55,23 @@ public sealed class GameClient : IGameApplication
     public void Update(GameTime time, InputSnapshot input)
     {
         _camera.Update(input, (float)time.Delta.TotalSeconds);
+
+        if (input.SelectedHotbarSlot >= 0 && input.SelectedHotbarSlot < _hotbarBlocks.Length)
+        {
+            _selectedHotbarSlot = input.SelectedHotbarSlot;
+        }
+
+        UpdateSelection();
+
+        if (input.BreakBlock)
+        {
+            BreakSelectedBlock();
+        }
+
+        if (input.PlaceBlock)
+        {
+            PlaceSelectedBlock();
+        }
     }
 
     public void Render(GameTime time)
@@ -53,7 +86,8 @@ public sealed class GameClient : IGameApplication
                 _frameTimer.FramesPerSecond,
                 _frameTimer.FrameTimeMilliseconds,
                 _fixedTicks,
-                _camera.Position));
+                _camera.Position,
+                GetInteractionDebugText()));
     }
 
     public void Resize(int width, int height)
@@ -67,6 +101,88 @@ public sealed class GameClient : IGameApplication
     }
 
     public int FixedTicks => _fixedTicks;
+
+    private void UpdateSelection()
+    {
+        if (_chunk is null)
+        {
+            _selection = null;
+            _renderer?.SetSelection(null);
+            return;
+        }
+
+        NumericsVector3 origin = new(_camera.Position.X, _camera.Position.Y, _camera.Position.Z);
+        NumericsVector3 direction = new(_camera.Forward.X, _camera.Forward.Y, _camera.Forward.Z);
+
+        _selection = VoxelRaycaster.Raycast(
+            origin,
+            direction,
+            maxDistance: 8.0f,
+            position => _blocks.Get(_chunk.GetBlock(position)).IsSolid);
+
+        _renderer?.SetSelection(_selection is { } hit
+            ? new VoxelSelectionBox(hit.Block.X, hit.Block.Y, hit.Block.Z)
+            : null);
+    }
+
+    private void BreakSelectedBlock()
+    {
+        if (_chunk is null || _selection is not { } hit)
+        {
+            return;
+        }
+
+        _chunk.SetBlock(hit.Block, BlockIds.Air);
+        _editCount++;
+        RebuildChunkMesh();
+        UpdateSelection();
+    }
+
+    private void PlaceSelectedBlock()
+    {
+        if (_chunk is null || _selection is not { } hit || !IsInsideChunk(hit.Adjacent))
+        {
+            return;
+        }
+
+        if (_chunk.GetBlock(hit.Adjacent) != BlockIds.Air)
+        {
+            return;
+        }
+
+        _chunk.SetBlock(hit.Adjacent, _hotbarBlocks[_selectedHotbarSlot]);
+        _editCount++;
+        RebuildChunkMesh();
+        UpdateSelection();
+    }
+
+    private void RebuildChunkMesh()
+    {
+        if (_chunk is null)
+        {
+            return;
+        }
+
+        ChunkMeshData mesh = _mesher.BuildMesh(_chunk, _blocks);
+        _renderer?.LoadChunkMesh(VoxelMeshConverter.ToRenderMesh(mesh));
+    }
+
+    private string GetInteractionDebugText()
+    {
+        string selectedBlockName = _blocks.Get(_hotbarBlocks[_selectedHotbarSlot]).Name.Replace("sharpengine:", string.Empty, StringComparison.Ordinal);
+        string selectionText = _selection is { } hit
+            ? $"{hit.Block.X},{hit.Block.Y},{hit.Block.Z}"
+            : "NONE";
+
+        return $"SEL: {selectionText}  HOTBAR: {_selectedHotbarSlot + 1}/{selectedBlockName}  EDITS: {_editCount}";
+    }
+
+    private static bool IsInsideChunk(LocalBlockPosition position)
+    {
+        return position.X is >= 0 and < Chunk.Size &&
+            position.Y is >= 0 and < Chunk.Height &&
+            position.Z is >= 0 and < Chunk.Size;
+    }
 
     private static Chunk CreateDemoChunk()
     {

@@ -13,12 +13,19 @@ public sealed class OpenGlDebugRenderer : IRenderer
     private readonly int _projectionUniform;
     private readonly int _textureArray;
     private readonly DebugOverlayRenderer _debugOverlayRenderer;
+    private readonly int _selectionShaderProgram;
+    private readonly int _selectionVertexArray;
+    private readonly int _selectionVertexBuffer;
+    private readonly int _selectionModelUniform;
+    private readonly int _selectionProjectionUniform;
+    private readonly int _selectionViewUniform;
     private int _height;
     private int _indexBuffer;
     private int _indexCount;
     private int _width;
     private bool _disposed;
     private bool _hasUploadedMesh;
+    private VoxelSelectionBox? _selection;
 
     public OpenGlDebugRenderer(int width, int height)
     {
@@ -29,12 +36,18 @@ public sealed class OpenGlDebugRenderer : IRenderer
         _modelUniform = GL.GetUniformLocation(_shaderProgram, "uModel");
         _viewUniform = GL.GetUniformLocation(_shaderProgram, "uView");
         _projectionUniform = GL.GetUniformLocation(_shaderProgram, "uProjection");
+        _selectionShaderProgram = CreateShaderProgram(SelectionVertexShaderSource, SelectionFragmentShaderSource);
+        _selectionModelUniform = GL.GetUniformLocation(_selectionShaderProgram, "uModel");
+        _selectionViewUniform = GL.GetUniformLocation(_selectionShaderProgram, "uView");
+        _selectionProjectionUniform = GL.GetUniformLocation(_selectionShaderProgram, "uProjection");
 
         _vertexArray = GL.GenVertexArray();
         _vertexBuffer = GL.GenBuffer();
         _indexBuffer = GL.GenBuffer();
         _textureArray = CreateDebugTextureArray();
         _debugOverlayRenderer = new DebugOverlayRenderer();
+        _selectionVertexArray = GL.GenVertexArray();
+        _selectionVertexBuffer = GL.GenBuffer();
 
         GL.BindVertexArray(_vertexArray);
         GL.BindBuffer(BufferTarget.ArrayBuffer, _vertexBuffer);
@@ -50,6 +63,13 @@ public sealed class OpenGlDebugRenderer : IRenderer
         GL.VertexAttribPointer(3, 1, VertexAttribPointerType.Float, normalized: false, stride, 8 * sizeof(float));
         GL.EnableVertexAttribArray(3);
 
+        GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
+        GL.BindVertexArray(0);
+
+        GL.BindVertexArray(_selectionVertexArray);
+        GL.BindBuffer(BufferTarget.ArrayBuffer, _selectionVertexBuffer);
+        GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, normalized: false, 3 * sizeof(float), 0);
+        GL.EnableVertexAttribArray(0);
         GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
         GL.BindVertexArray(0);
 
@@ -109,6 +129,11 @@ public sealed class OpenGlDebugRenderer : IRenderer
         GL.Viewport(0, 0, _width, _height);
     }
 
+    public void SetSelection(VoxelSelectionBox? selection)
+    {
+        _selection = selection;
+    }
+
     public void RenderFrame(DebugCamera camera, TimeSpan totalTime, DebugOverlaySnapshot debugOverlay)
     {
         float aspectRatio = (float)_width / _height;
@@ -139,6 +164,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
         GL.BindVertexArray(0);
 
         Stats = Stats with { DrawCalls = 1, VisibleChunks = 1 };
+        RenderSelection(camera);
         RenderDebugOverlay(debugOverlay);
     }
 
@@ -151,11 +177,65 @@ public sealed class OpenGlDebugRenderer : IRenderer
 
         GL.DeleteBuffer(_vertexBuffer);
         GL.DeleteBuffer(_indexBuffer);
+        GL.DeleteBuffer(_selectionVertexBuffer);
         GL.DeleteVertexArray(_vertexArray);
+        GL.DeleteVertexArray(_selectionVertexArray);
         GL.DeleteTexture(_textureArray);
         GL.DeleteProgram(_shaderProgram);
+        GL.DeleteProgram(_selectionShaderProgram);
         _debugOverlayRenderer.Dispose();
         _disposed = true;
+    }
+
+    private void RenderSelection(DebugCamera camera)
+    {
+        if (_selection is not { } selection)
+        {
+            return;
+        }
+
+        float minX = selection.X - 0.01f;
+        float minY = selection.Y - 0.01f;
+        float minZ = selection.Z - 0.01f;
+        float maxX = selection.X + 1.01f;
+        float maxY = selection.Y + 1.01f;
+        float maxZ = selection.Z + 1.01f;
+
+        float[] lines =
+        [
+            minX, minY, minZ, maxX, minY, minZ,
+            maxX, minY, minZ, maxX, minY, maxZ,
+            maxX, minY, maxZ, minX, minY, maxZ,
+            minX, minY, maxZ, minX, minY, minZ,
+
+            minX, maxY, minZ, maxX, maxY, minZ,
+            maxX, maxY, minZ, maxX, maxY, maxZ,
+            maxX, maxY, maxZ, minX, maxY, maxZ,
+            minX, maxY, maxZ, minX, maxY, minZ,
+
+            minX, minY, minZ, minX, maxY, minZ,
+            maxX, minY, minZ, maxX, maxY, minZ,
+            maxX, minY, maxZ, maxX, maxY, maxZ,
+            minX, minY, maxZ, minX, maxY, maxZ
+        ];
+
+        float aspectRatio = (float)_width / _height;
+        Matrix4 model = Matrix4.Identity;
+        Matrix4 view = camera.GetViewMatrix();
+        Matrix4 projection = camera.GetProjectionMatrix(aspectRatio);
+
+        GL.UseProgram(_selectionShaderProgram);
+        GL.UniformMatrix4(_selectionModelUniform, transpose: false, ref model);
+        GL.UniformMatrix4(_selectionViewUniform, transpose: false, ref view);
+        GL.UniformMatrix4(_selectionProjectionUniform, transpose: false, ref projection);
+        GL.LineWidth(2.0f);
+        GL.BindVertexArray(_selectionVertexArray);
+        GL.BindBuffer(BufferTarget.ArrayBuffer, _selectionVertexBuffer);
+        GL.BufferData(BufferTarget.ArrayBuffer, lines.Length * sizeof(float), lines, BufferUsageHint.StreamDraw);
+        GL.DrawArrays(PrimitiveType.Lines, 0, lines.Length / 3);
+        GL.BindVertexArray(0);
+
+        Stats = Stats with { DrawCalls = Stats.DrawCalls + 1 };
     }
 
     private void RenderDebugOverlay(DebugOverlaySnapshot debugOverlay)
@@ -177,7 +257,8 @@ public sealed class OpenGlDebugRenderer : IRenderer
             $"CHUNKS: {Stats.VisibleChunks}",
             $"MESH UPLOADS: {Stats.UploadedMeshes}",
             $"TICKS: {debugOverlay.FixedTicks}",
-            $"CAM: {debugOverlay.CameraPosition.X:0.0}, {debugOverlay.CameraPosition.Y:0.0}, {debugOverlay.CameraPosition.Z:0.0}"
+            $"CAM: {debugOverlay.CameraPosition.X:0.0}, {debugOverlay.CameraPosition.Y:0.0}, {debugOverlay.CameraPosition.Z:0.0}",
+            debugOverlay.InteractionText
         ];
 
         int overlayDrawCalls = _debugOverlayRenderer.Draw(lines, _width, _height);
@@ -267,6 +348,32 @@ public sealed class OpenGlDebugRenderer : IRenderer
             float light = 0.62 + 0.38 * max(dot(normalize(vNormal), lightDirection), 0.0);
             vec4 texel = texture(uTextureArray, vec3(vTexCoord, vTextureIndex));
             FragColor = vec4(texel.rgb * light, texel.a);
+        }
+        """;
+
+    private const string SelectionVertexShaderSource = """
+        #version 330 core
+
+        layout (location = 0) in vec3 aPosition;
+
+        uniform mat4 uModel;
+        uniform mat4 uView;
+        uniform mat4 uProjection;
+
+        void main()
+        {
+            gl_Position = uProjection * uView * uModel * vec4(aPosition, 1.0);
+        }
+        """;
+
+    private const string SelectionFragmentShaderSource = """
+        #version 330 core
+
+        out vec4 FragColor;
+
+        void main()
+        {
+            FragColor = vec4(0.02, 0.02, 0.02, 1.0);
         }
         """;
 
