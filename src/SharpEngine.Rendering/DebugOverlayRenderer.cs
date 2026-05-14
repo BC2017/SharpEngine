@@ -37,9 +37,11 @@ internal sealed class DebugOverlayRenderer : IDisposable
     {
         List<float> vertices = [];
         float y = 12.0f;
+        float maxPanelWidth = Math.Max(1.0f, width - 16.0f);
+        float panelWidth = Math.Min(maxPanelWidth, Math.Max(430.0f, GetPanelWidth(lines)));
 
         AddCrosshair(vertices, width, height);
-        AddPanel(vertices, 8.0f, 8.0f, 430.0f, 22.0f + (lines.Length * LineHeight));
+        AddPanel(vertices, 8.0f, 8.0f, panelWidth, 22.0f + (lines.Length * LineHeight));
 
         foreach (string line in lines)
         {
@@ -70,6 +72,18 @@ internal sealed class DebugOverlayRenderer : IDisposable
         GL.Enable(EnableCap.DepthTest);
 
         return 1;
+    }
+
+    private static float GetPanelWidth(string[] lines)
+    {
+        int longest = 0;
+
+        foreach (string line in lines)
+        {
+            longest = Math.Max(longest, line.Length);
+        }
+
+        return 32.0f + (longest * (GlyphWidth + 1) * PixelSize);
     }
 
     public void Dispose()

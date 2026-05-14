@@ -29,6 +29,14 @@ for (int i = 0; i < 120; i++)
 
 AssertTrue(wallPlayer.Position.X < 1.70f, $"Expected wall collision to stop player before x=2, got {wallPlayer.Position.X}.");
 
+PlayerController flyingPlayer = new(new Vector3(0.0f, 2.0f, 0.0f));
+flyingPlayer.ToggleFlying();
+flyingPlayer.Update(moveRight with { Sprint = true, Jump = true }, 0.5f, GroundAndWall);
+
+AssertTrue(flyingPlayer.IsFlying, "Expected fly mode to stay enabled.");
+AssertTrue(flyingPlayer.Position.X > 2.0f, $"Expected fly mode to bypass wall collision, got {flyingPlayer.Position.X}.");
+AssertTrue(flyingPlayer.Position.Y > 2.0f, $"Expected fly mode jump input to move upward, got {flyingPlayer.Position.Y}.");
+
 Console.WriteLine("SharpEngine.Gameplay.Tests passed.");
 
 static bool GroundOnly(Vector3 center, Vector3 halfExtents)

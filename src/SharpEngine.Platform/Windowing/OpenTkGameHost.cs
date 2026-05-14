@@ -17,6 +17,7 @@ public sealed class OpenTkGameHost : GameWindow
     private TimeSpan _total;
     private bool _wasLeftMouseDown;
     private bool _wasRightMouseDown;
+    private bool _wasFDown;
     private bool _wasF5Down;
     private bool _wasF9Down;
 
@@ -87,15 +88,18 @@ public sealed class OpenTkGameHost : GameWindow
     {
         bool isLeftMouseDown = MouseState.IsButtonDown(MouseButton.Left);
         bool isRightMouseDown = MouseState.IsButtonDown(MouseButton.Right);
+        bool isFDown = KeyboardState.IsKeyDown(Keys.F);
         bool isF5Down = KeyboardState.IsKeyDown(Keys.F5);
         bool isF9Down = KeyboardState.IsKeyDown(Keys.F9);
         bool breakBlock = isLeftMouseDown && !_wasLeftMouseDown;
         bool placeBlock = isRightMouseDown && !_wasRightMouseDown;
+        bool toggleFly = isFDown && !_wasFDown;
         bool saveWorld = isF5Down && !_wasF5Down;
         bool createWorld = isF9Down && !_wasF9Down;
 
         _wasLeftMouseDown = isLeftMouseDown;
         _wasRightMouseDown = isRightMouseDown;
+        _wasFDown = isFDown;
         _wasF5Down = isF5Down;
         _wasF9Down = isF9Down;
 
@@ -112,6 +116,7 @@ public sealed class OpenTkGameHost : GameWindow
             placeBlock,
             saveWorld,
             createWorld,
+            toggleFly,
             GetSelectedHotbarSlot(),
             MouseState.Delta.X,
             MouseState.Delta.Y);

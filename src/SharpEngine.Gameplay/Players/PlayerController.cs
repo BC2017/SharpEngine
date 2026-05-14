@@ -9,6 +9,8 @@ public sealed class PlayerController
     private const float WalkSpeed = 4.6f;
     private const float SprintSpeed = 7.2f;
     private const float CrouchSpeed = 2.2f;
+    private const float FlySpeed = 12.0f;
+    private const float FlySprintSpeed = 24.0f;
     private const float GroundFriction = 16.0f;
     private const float AirControl = 5.0f;
     private const float StepHeight = 0.55f;
@@ -31,6 +33,8 @@ public sealed class PlayerController
 
     public bool IsSwimming { get; private set; }
 
+    public bool IsFlying { get; private set; }
+
     public Vector3 HalfExtents => IsCrouching ? CrouchedHalfExtents : PlayerHalfExtents;
 
     public float EyeHeightFromFeet => IsCrouching ? 1.32f : 1.62f;
@@ -47,6 +51,13 @@ public sealed class PlayerController
         }
 
         IsSwimming = false;
+
+        if (IsFlying)
+        {
+            UpdateFlying(input, deltaSeconds);
+            return;
+        }
+
         IsCrouching = input.Crouch;
         Vector3 halfExtents = IsCrouching ? CrouchedHalfExtents : PlayerHalfExtents;
         Vector3 desiredHorizontalVelocity = GetDesiredHorizontalVelocity(input);
@@ -92,6 +103,63 @@ public sealed class PlayerController
         Position = position;
         Velocity = Vector3.Zero;
         IsGrounded = false;
+    }
+
+    public void ToggleFlying()
+    {
+        IsFlying = !IsFlying;
+        IsGrounded = false;
+        IsCrouching = false;
+        Velocity = Vector3.Zero;
+    }
+
+    private void UpdateFlying(PlayerInput input, float deltaSeconds)
+    {
+        IsGrounded = false;
+        IsCrouching = false;
+
+        Vector3 forward = NormalizeOrZero(input.Forward);
+        Vector3 right = NormalizeOrZero(input.Right);
+        Vector3 movement = Vector3.Zero;
+
+        if (input.MoveForward)
+        {
+            movement += forward;
+        }
+
+        if (input.MoveBackward)
+        {
+            movement -= forward;
+        }
+
+        if (input.MoveRight)
+        {
+            movement += right;
+        }
+
+        if (input.MoveLeft)
+        {
+            movement -= right;
+        }
+
+        if (input.Jump)
+        {
+            movement += Vector3.UnitY;
+        }
+
+        if (input.Crouch)
+        {
+            movement -= Vector3.UnitY;
+        }
+
+        if (movement.LengthSquared() > 0.0f)
+        {
+            movement = Vector3.Normalize(movement);
+        }
+
+        float speed = input.Sprint ? FlySprintSpeed : FlySpeed;
+        Velocity = movement * speed;
+        Position += Velocity * deltaSeconds;
     }
 
     private Vector3 GetDesiredHorizontalVelocity(PlayerInput input)
@@ -200,6 +268,11 @@ public sealed class PlayerController
     private static Vector3 FlattenAndNormalize(Vector3 vector)
     {
         vector.Y = 0.0f;
+        return NormalizeOrZero(vector);
+    }
+
+    private static Vector3 NormalizeOrZero(Vector3 vector)
+    {
         return vector.LengthSquared() <= float.Epsilon ? Vector3.Zero : Vector3.Normalize(vector);
     }
 

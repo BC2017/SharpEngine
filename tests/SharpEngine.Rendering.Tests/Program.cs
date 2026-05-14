@@ -17,6 +17,7 @@ camera.Update(new InputSnapshot(
     PlaceBlock: false,
     SaveWorld: false,
     CreateWorld: false,
+    ToggleFly: false,
     SelectedHotbarSlot: -1,
     MouseDeltaX: 0.0f,
     MouseDeltaY: 0.0f), deltaSeconds: 1.0f);
@@ -36,6 +37,7 @@ camera.Update(new InputSnapshot(
     PlaceBlock: false,
     SaveWorld: false,
     CreateWorld: false,
+    ToggleFly: false,
     SelectedHotbarSlot: -1,
     MouseDeltaX: 0.0f,
     MouseDeltaY: 0.0f), deltaSeconds: 1.0f);
