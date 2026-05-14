@@ -13,6 +13,7 @@ public readonly record struct InputSnapshot(
     bool PlaceBlock,
     bool SaveWorld,
     bool CreateWorld,
+    bool ToggleFly,
     int SelectedHotbarSlot,
     float MouseDeltaX,
     float MouseDeltaY);

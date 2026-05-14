@@ -18,6 +18,8 @@ namespace SharpEngine.Client;
 
 public sealed class GameClient : IGameApplication
 {
+    private const int DefaultRenderRadius = 3;
+
     private readonly BlockRegistry _blocks;
     private readonly DebugFrameTimer _frameTimer = new();
     private readonly ushort[] _hotbarBlocks =
@@ -42,8 +44,11 @@ public sealed class GameClient : IGameApplication
     private int _editCount;
     private int _fixedTicks;
     private int _loadedRadius;
+    private int _streamedChunkLoads;
+    private int _streamedChunkUnloads;
     private int _savedChunkCount;
     private int _selectedHotbarSlot;
+    private ChunkPosition? _streamingCenter;
     private string _worldUiStatus = "WORLD READY";
 
     public GameClient(BlockRegistry blocks)
@@ -60,9 +65,10 @@ public sealed class GameClient : IGameApplication
             _worldSaveStore.Metadata.Seed,
             _worldSaveStore.Metadata.WaterLevel));
         _savedChunkCount = _worldSaveStore.SavedChunkCount;
-        LoadInitialChunks(renderRadius: 2);
+        LoadInitialChunks(DefaultRenderRadius);
         RebuildWorldLighting();
         MovePlayerToSpawn();
+        UpdateLoadedChunksForPlayer();
         SyncCameraToPlayer();
         RebuildChunkMesh();
     }
@@ -75,10 +81,19 @@ public sealed class GameClient : IGameApplication
     public void Update(GameTime time, InputSnapshot input)
     {
         _camera.Rotate(input.MouseDeltaX, input.MouseDeltaY);
+
+        if (input.ToggleFly)
+        {
+            _player.ToggleFlying();
+            _worldUiStatus = _player.IsFlying ? "FLY ENABLED" : "FLY DISABLED";
+        }
+
+        UpdateLoadedChunksForPlayer();
         _player.Update(
             CreatePlayerInput(input),
             (float)time.Delta.TotalSeconds,
             IsAabbOverlappingSolid);
+        UpdateLoadedChunksForPlayer();
         SyncCameraToPlayer();
 
         if (input.SelectedHotbarSlot >= 0 && input.SelectedHotbarSlot < _hotbarBlocks.Length)
@@ -213,10 +228,10 @@ public sealed class GameClient : IGameApplication
             ? $"{hit.Block.X},{hit.Block.Y},{hit.Block.Z}"
             : "NONE";
 
-        string motionText = _player.IsSwimming ? "SWIM" : _player.IsCrouching ? "CROUCH" : _player.IsGrounded ? "GROUND" : "AIR";
+        string motionText = _player.IsFlying ? "FLY" : _player.IsSwimming ? "SWIM" : _player.IsCrouching ? "CROUCH" : _player.IsGrounded ? "GROUND" : "AIR";
         string worldName = _worldSaveStore?.Metadata.WorldName ?? "NONE";
         string worldId = _worldSaveStore?.WorldId ?? "NONE";
-        return $"SEL: {selectionText}\nHOTBAR: {_selectedHotbarSlot + 1}/{selectedBlockName}  EDITS: {_editCount}\nCHUNKS: {_chunks.Count}  RADIUS: {_loadedRadius}  SAVED: {_savedChunkCount}\nMOTION: {motionText}\nVEL: {_player.Velocity.X:0.0},{_player.Velocity.Y:0.0},{_player.Velocity.Z:0.0}\nWORLD: {worldName}  ID: {worldId}\nF5 SAVE WORLD  F9 NEW WORLD\nSTATUS: {_worldUiStatus}";
+        return $"SEL: {selectionText}\nHOTBAR: {_selectedHotbarSlot + 1}/{selectedBlockName}  EDITS: {_editCount}\nCHUNKS: {_chunks.Count}  RADIUS: {_loadedRadius}  LOADS: {_streamedChunkLoads}  UNLOADS: {_streamedChunkUnloads}  SAVED: {_savedChunkCount}\nMOTION: {motionText}\nVEL: {_player.Velocity.X:0.0},{_player.Velocity.Y:0.0},{_player.Velocity.Z:0.0}\nWORLD: {worldName}  ID: {worldId}\nF TOGGLE FLY  F5 SAVE WORLD  F9 NEW WORLD\nSTATUS: {_worldUiStatus}";
     }
 
     private PlayerInput CreatePlayerInput(InputSnapshot input)
@@ -300,20 +315,74 @@ public sealed class GameClient : IGameApplication
 
     private void LoadInitialChunks(int renderRadius)
     {
+        _loadedRadius = renderRadius;
+        _streamingCenter = null;
+        EnsureChunksAround(new ChunkPosition(0, 0));
+    }
+
+    private void UpdateLoadedChunksForPlayer()
+    {
+        ChunkPosition playerChunk = new BlockPosition(
+            (int)MathF.Floor(_player.Position.X),
+            0,
+            (int)MathF.Floor(_player.Position.Z)).ToChunkPosition();
+
+        if (EnsureChunksAround(playerChunk))
+        {
+            RebuildWorldLighting();
+            RebuildChunkMesh();
+            _worldUiStatus = $"STREAMED AROUND {playerChunk.X},{playerChunk.Z}";
+        }
+    }
+
+    private bool EnsureChunksAround(ChunkPosition center)
+    {
         if (_terrainGenerator is null)
         {
-            return;
+            return false;
         }
 
-        _loadedRadius = renderRadius;
-        for (int chunkZ = -renderRadius; chunkZ <= renderRadius; chunkZ++)
+        if (_streamingCenter == center && _chunks.Count > 0)
         {
-            for (int chunkX = -renderRadius; chunkX <= renderRadius; chunkX++)
+            return false;
+        }
+
+        HashSet<ChunkPosition> wanted = [];
+        for (int chunkZ = center.Z - _loadedRadius; chunkZ <= center.Z + _loadedRadius; chunkZ++)
+        {
+            for (int chunkX = center.X - _loadedRadius; chunkX <= center.X + _loadedRadius; chunkX++)
             {
-                ChunkPosition position = new(chunkX, chunkZ);
-                _chunks[position] = _worldSaveStore?.TryLoadChunk(position) ?? _terrainGenerator.GenerateChunk(position);
+                wanted.Add(new ChunkPosition(chunkX, chunkZ));
             }
         }
+
+        bool changed = false;
+        foreach (ChunkPosition position in _chunks.Keys.ToArray())
+        {
+            if (wanted.Contains(position))
+            {
+                continue;
+            }
+
+            _chunks.Remove(position);
+            _streamedChunkUnloads++;
+            changed = true;
+        }
+
+        foreach (ChunkPosition position in wanted)
+        {
+            if (_chunks.ContainsKey(position))
+            {
+                continue;
+            }
+
+            _chunks[position] = _worldSaveStore?.TryLoadChunk(position) ?? _terrainGenerator.GenerateChunk(position);
+            _streamedChunkLoads++;
+            changed = true;
+        }
+
+        _streamingCenter = center;
+        return changed;
     }
 
     private void SaveLoadedWorld()
@@ -342,8 +411,11 @@ public sealed class GameClient : IGameApplication
         _terrainGenerator = new TerrainGenerator(settings);
         _chunks.Clear();
         _editCount = 0;
+        _streamedChunkLoads = 0;
+        _streamedChunkUnloads = 0;
+        _streamingCenter = null;
         _savedChunkCount = _worldSaveStore.SavedChunkCount;
-        LoadInitialChunks(_loadedRadius == 0 ? 2 : _loadedRadius);
+        LoadInitialChunks(_loadedRadius == 0 ? DefaultRenderRadius : _loadedRadius);
         RebuildWorldLighting();
         MovePlayerToSpawn();
         SyncCameraToPlayer();
