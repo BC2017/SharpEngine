@@ -11,9 +11,13 @@ public sealed class OpenGlDebugRenderer : IRenderer
     private readonly int _modelUniform;
     private readonly int _viewUniform;
     private readonly int _projectionUniform;
+    private readonly int _textureArray;
     private int _height;
+    private int _indexBuffer;
+    private int _indexCount;
     private int _width;
     private bool _disposed;
+    private bool _hasUploadedMesh;
 
     public OpenGlDebugRenderer(int width, int height)
     {
@@ -27,15 +31,22 @@ public sealed class OpenGlDebugRenderer : IRenderer
 
         _vertexArray = GL.GenVertexArray();
         _vertexBuffer = GL.GenBuffer();
+        _indexBuffer = GL.GenBuffer();
+        _textureArray = CreateDebugTextureArray();
 
         GL.BindVertexArray(_vertexArray);
         GL.BindBuffer(BufferTarget.ArrayBuffer, _vertexBuffer);
-        GL.BufferData(BufferTarget.ArrayBuffer, CubeVertices.Length * sizeof(float), CubeVertices, BufferUsageHint.StaticDraw);
+        GL.BindBuffer(BufferTarget.ElementArrayBuffer, _indexBuffer);
 
-        GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, normalized: false, 6 * sizeof(float), 0);
+        int stride = 9 * sizeof(float);
+        GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, normalized: false, stride, 0);
         GL.EnableVertexAttribArray(0);
-        GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, normalized: false, 6 * sizeof(float), 3 * sizeof(float));
+        GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, normalized: false, stride, 3 * sizeof(float));
         GL.EnableVertexAttribArray(1);
+        GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, normalized: false, stride, 6 * sizeof(float));
+        GL.EnableVertexAttribArray(2);
+        GL.VertexAttribPointer(3, 1, VertexAttribPointerType.Float, normalized: false, stride, 8 * sizeof(float));
+        GL.EnableVertexAttribArray(3);
 
         GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
         GL.BindVertexArray(0);
@@ -45,6 +56,42 @@ public sealed class OpenGlDebugRenderer : IRenderer
     }
 
     public RenderStats Stats { get; private set; }
+
+    public void LoadChunkMesh(VoxelRenderMesh mesh)
+    {
+        ArgumentNullException.ThrowIfNull(mesh);
+
+        float[] vertices = new float[mesh.Vertices.Count * 9];
+        int cursor = 0;
+
+        foreach (VoxelRenderVertex vertex in mesh.Vertices)
+        {
+            vertices[cursor++] = vertex.X;
+            vertices[cursor++] = vertex.Y;
+            vertices[cursor++] = vertex.Z;
+            vertices[cursor++] = vertex.NormalX;
+            vertices[cursor++] = vertex.NormalY;
+            vertices[cursor++] = vertex.NormalZ;
+            vertices[cursor++] = vertex.U;
+            vertices[cursor++] = vertex.V;
+            vertices[cursor++] = vertex.TextureIndex;
+        }
+
+        uint[] indices = [.. mesh.Indices];
+
+        GL.BindVertexArray(_vertexArray);
+        GL.BindBuffer(BufferTarget.ArrayBuffer, _vertexBuffer);
+        GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
+
+        GL.BindBuffer(BufferTarget.ElementArrayBuffer, _indexBuffer);
+        GL.BufferData(BufferTarget.ElementArrayBuffer, indices.Length * sizeof(uint), indices, BufferUsageHint.StaticDraw);
+
+        GL.BindVertexArray(0);
+
+        _indexCount = indices.Length;
+        _hasUploadedMesh = true;
+        Stats = Stats with { UploadedMeshes = Stats.UploadedMeshes + 1 };
+    }
 
     public void Resize(int width, int height)
     {
@@ -56,25 +103,32 @@ public sealed class OpenGlDebugRenderer : IRenderer
     public void RenderFrame(DebugCamera camera, TimeSpan totalTime)
     {
         float aspectRatio = (float)_width / _height;
-        Matrix4 model =
-            Matrix4.CreateRotationY((float)totalTime.TotalSeconds * 0.65f) *
-            Matrix4.CreateRotationX((float)totalTime.TotalSeconds * 0.2f);
+        Matrix4 model = Matrix4.Identity;
         Matrix4 view = camera.GetViewMatrix();
         Matrix4 projection = camera.GetProjectionMatrix(aspectRatio);
 
-        GL.ClearColor(0.08f, 0.11f, 0.14f, 1.0f);
+        GL.ClearColor(0.51f, 0.68f, 0.92f, 1.0f);
         GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+
+        if (!_hasUploadedMesh || _indexCount == 0)
+        {
+            Stats = Stats with { DrawCalls = 0, VisibleChunks = 0 };
+            return;
+        }
 
         GL.UseProgram(_shaderProgram);
         GL.UniformMatrix4(_modelUniform, transpose: false, ref model);
         GL.UniformMatrix4(_viewUniform, transpose: false, ref view);
         GL.UniformMatrix4(_projectionUniform, transpose: false, ref projection);
 
+        GL.ActiveTexture(TextureUnit.Texture0);
+        GL.BindTexture(TextureTarget.Texture2DArray, _textureArray);
+
         GL.BindVertexArray(_vertexArray);
-        GL.DrawArrays(PrimitiveType.Triangles, 0, CubeVertices.Length / 6);
+        GL.DrawElements(PrimitiveType.Triangles, _indexCount, DrawElementsType.UnsignedInt, 0);
         GL.BindVertexArray(0);
 
-        Stats = new RenderStats(DrawCalls: 1, VisibleChunks: 0, UploadedMeshes: 0);
+        Stats = Stats with { DrawCalls = 1, VisibleChunks = 1 };
     }
 
     public void Dispose()
@@ -85,7 +139,9 @@ public sealed class OpenGlDebugRenderer : IRenderer
         }
 
         GL.DeleteBuffer(_vertexBuffer);
+        GL.DeleteBuffer(_indexBuffer);
         GL.DeleteVertexArray(_vertexArray);
+        GL.DeleteTexture(_textureArray);
         GL.DeleteProgram(_shaderProgram);
         _disposed = true;
     }
@@ -136,9 +192,13 @@ public sealed class OpenGlDebugRenderer : IRenderer
         #version 330 core
 
         layout (location = 0) in vec3 aPosition;
-        layout (location = 1) in vec3 aColor;
+        layout (location = 1) in vec3 aNormal;
+        layout (location = 2) in vec2 aTexCoord;
+        layout (location = 3) in float aTextureIndex;
 
-        out vec3 vColor;
+        out vec3 vNormal;
+        out vec2 vTexCoord;
+        out float vTextureIndex;
 
         uniform mat4 uModel;
         uniform mat4 uView;
@@ -146,7 +206,9 @@ public sealed class OpenGlDebugRenderer : IRenderer
 
         void main()
         {
-            vColor = aColor;
+            vNormal = mat3(uModel) * aNormal;
+            vTexCoord = aTexCoord;
+            vTextureIndex = aTextureIndex;
             gl_Position = uProjection * uView * uModel * vec4(aPosition, 1.0);
         }
         """;
@@ -154,64 +216,82 @@ public sealed class OpenGlDebugRenderer : IRenderer
     private const string FragmentShaderSource = """
         #version 330 core
 
-        in vec3 vColor;
+        in vec3 vNormal;
+        in vec2 vTexCoord;
+        in float vTextureIndex;
         out vec4 FragColor;
+
+        uniform sampler2DArray uTextureArray;
 
         void main()
         {
-            FragColor = vec4(vColor, 1.0);
+            vec3 lightDirection = normalize(vec3(0.35, 0.85, 0.25));
+            float light = 0.62 + 0.38 * max(dot(normalize(vNormal), lightDirection), 0.0);
+            vec4 texel = texture(uTextureArray, vec3(vTexCoord, vTextureIndex));
+            FragColor = vec4(texel.rgb * light, texel.a);
         }
         """;
 
-    private static readonly float[] CubeVertices =
-    [
-        // Front
-        -0.5f, -0.5f,  0.5f, 0.85f, 0.28f, 0.22f,
-         0.5f, -0.5f,  0.5f, 0.85f, 0.28f, 0.22f,
-         0.5f,  0.5f,  0.5f, 0.85f, 0.28f, 0.22f,
-         0.5f,  0.5f,  0.5f, 0.85f, 0.28f, 0.22f,
-        -0.5f,  0.5f,  0.5f, 0.85f, 0.28f, 0.22f,
-        -0.5f, -0.5f,  0.5f, 0.85f, 0.28f, 0.22f,
+    private static int CreateDebugTextureArray()
+    {
+        const int textureSize = 16;
+        const int layerCount = 8;
+        byte[] pixels = new byte[textureSize * textureSize * layerCount * 4];
 
-        // Back
-        -0.5f, -0.5f, -0.5f, 0.20f, 0.55f, 0.82f,
-        -0.5f,  0.5f, -0.5f, 0.20f, 0.55f, 0.82f,
-         0.5f,  0.5f, -0.5f, 0.20f, 0.55f, 0.82f,
-         0.5f,  0.5f, -0.5f, 0.20f, 0.55f, 0.82f,
-         0.5f, -0.5f, -0.5f, 0.20f, 0.55f, 0.82f,
-        -0.5f, -0.5f, -0.5f, 0.20f, 0.55f, 0.82f,
+        FillLayer(pixels, textureSize, 0, (0, 0, 0), (0, 0, 0));
+        FillLayer(pixels, textureSize, 1, (74, 154, 67), (95, 184, 81));
+        FillLayer(pixels, textureSize, 2, (121, 82, 47), (101, 69, 39));
+        FillLayer(pixels, textureSize, 3, (121, 125, 128), (97, 101, 105));
+        FillLayer(pixels, textureSize, 4, (210, 194, 122), (232, 214, 144));
+        FillLayer(pixels, textureSize, 5, (117, 75, 42), (92, 58, 34));
+        FillLayer(pixels, textureSize, 6, (63, 116, 52), (49, 94, 42));
+        FillLayer(pixels, textureSize, 7, (96, 132, 205), (75, 111, 184));
 
-        // Left
-        -0.5f,  0.5f,  0.5f, 0.24f, 0.68f, 0.38f,
-        -0.5f,  0.5f, -0.5f, 0.24f, 0.68f, 0.38f,
-        -0.5f, -0.5f, -0.5f, 0.24f, 0.68f, 0.38f,
-        -0.5f, -0.5f, -0.5f, 0.24f, 0.68f, 0.38f,
-        -0.5f, -0.5f,  0.5f, 0.24f, 0.68f, 0.38f,
-        -0.5f,  0.5f,  0.5f, 0.24f, 0.68f, 0.38f,
+        int texture = GL.GenTexture();
+        GL.BindTexture(TextureTarget.Texture2DArray, texture);
+        GL.TexImage3D(
+            TextureTarget.Texture2DArray,
+            level: 0,
+            PixelInternalFormat.Rgba8,
+            textureSize,
+            textureSize,
+            layerCount,
+            border: 0,
+            PixelFormat.Rgba,
+            PixelType.UnsignedByte,
+            pixels);
 
-        // Right
-         0.5f,  0.5f,  0.5f, 0.94f, 0.72f, 0.26f,
-         0.5f, -0.5f, -0.5f, 0.94f, 0.72f, 0.26f,
-         0.5f,  0.5f, -0.5f, 0.94f, 0.72f, 0.26f,
-         0.5f, -0.5f, -0.5f, 0.94f, 0.72f, 0.26f,
-         0.5f,  0.5f,  0.5f, 0.94f, 0.72f, 0.26f,
-         0.5f, -0.5f,  0.5f, 0.94f, 0.72f, 0.26f,
+        GL.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
+        GL.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
+        GL.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureWrapS, (int)TextureWrapMode.Repeat);
+        GL.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureWrapT, (int)TextureWrapMode.Repeat);
 
-        // Top
-        -0.5f,  0.5f, -0.5f, 0.73f, 0.36f, 0.78f,
-        -0.5f,  0.5f,  0.5f, 0.73f, 0.36f, 0.78f,
-         0.5f,  0.5f,  0.5f, 0.73f, 0.36f, 0.78f,
-         0.5f,  0.5f,  0.5f, 0.73f, 0.36f, 0.78f,
-         0.5f,  0.5f, -0.5f, 0.73f, 0.36f, 0.78f,
-        -0.5f,  0.5f, -0.5f, 0.73f, 0.36f, 0.78f,
+        return texture;
+    }
 
-        // Bottom
-        -0.5f, -0.5f, -0.5f, 0.32f, 0.36f, 0.43f,
-         0.5f, -0.5f,  0.5f, 0.32f, 0.36f, 0.43f,
-        -0.5f, -0.5f,  0.5f, 0.32f, 0.36f, 0.43f,
-         0.5f, -0.5f,  0.5f, 0.32f, 0.36f, 0.43f,
-        -0.5f, -0.5f, -0.5f, 0.32f, 0.36f, 0.43f,
-         0.5f, -0.5f, -0.5f, 0.32f, 0.36f, 0.43f
-    ];
+    private static void FillLayer(
+        byte[] pixels,
+        int textureSize,
+        int layer,
+        (byte R, byte G, byte B) baseColor,
+        (byte R, byte G, byte B) accentColor)
+    {
+        int layerOffset = layer * textureSize * textureSize * 4;
+
+        for (int y = 0; y < textureSize; y++)
+        {
+            for (int x = 0; x < textureSize; x++)
+            {
+                bool accent = ((x / 4) + (y / 4)) % 2 == 0;
+                (byte r, byte g, byte b) = accent ? accentColor : baseColor;
+                int offset = layerOffset + ((y * textureSize + x) * 4);
+
+                pixels[offset] = r;
+                pixels[offset + 1] = g;
+                pixels[offset + 2] = b;
+                pixels[offset + 3] = 255;
+            }
+        }
+    }
 }
 
