@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\SharpEngine.Core\SharpEngine.Core.csproj" />
+  </ItemGroup>
+</Project>
+
