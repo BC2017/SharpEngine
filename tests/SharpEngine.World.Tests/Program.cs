@@ -2,6 +2,7 @@ using SharpEngine.World.Blocks;
 using SharpEngine.World.Chunks;
 using SharpEngine.World.Generation;
 using SharpEngine.World.Meshing;
+using SharpEngine.World.Persistence;
 using SharpEngine.World.Raycasting;
 
 BlockRegistry registry = new();
@@ -59,7 +60,7 @@ VoxelRaycastHit? miss = VoxelRaycaster.Raycast(
 
 AssertEqual(null, miss);
 
-TerrainGenerator generator = new(new TerrainGeneratorSettings(
+TerrainGeneratorSettings generatorSettings = new(
     Seed: 12345,
     WaterLevel: 4,
     new TerrainBlockPalette(
@@ -69,7 +70,8 @@ TerrainGenerator generator = new(new TerrainGeneratorSettings(
         Stone: 3,
         Sand: 4,
         Log: 5,
-        Leaves: 6)));
+        Leaves: 6));
+TerrainGenerator generator = new(generatorSettings);
 
 Chunk generatedA = generator.GenerateChunk(new ChunkPosition(1, -2));
 Chunk generatedB = generator.GenerateChunk(new ChunkPosition(1, -2));
@@ -96,6 +98,30 @@ WorldVoxelRaycastHit? worldHit = VoxelRaycaster.RaycastWorld(
     position => position == new BlockPosition(20, generator.GetHeight(20, -28), -28));
 
 AssertEqual(new BlockPosition(20, generator.GetHeight(20, -28), -28), worldHit?.Block);
+
+string savePath = Path.Combine(Path.GetTempPath(), "SharpEngine.World.Tests", Guid.NewGuid().ToString("N"));
+try
+{
+    WorldSaveStore saveStore = WorldSaveStore.OpenOrCreate(savePath, "Persistence Test", generatorSettings);
+    Chunk editedChunk = generator.GenerateChunk(new ChunkPosition(-2, 3));
+    editedChunk.SetBlock(new LocalBlockPosition(7, 5, 9), 4);
+    saveStore.SaveChunk(editedChunk);
+
+    WorldSaveStore reopenedStore = WorldSaveStore.OpenOrCreate(savePath, "Persistence Test", generatorSettings);
+    Chunk? loadedChunk = reopenedStore.TryLoadChunk(new ChunkPosition(-2, 3));
+
+    AssertEqual(1, reopenedStore.SavedChunkCount);
+    AssertEqual(generatorSettings.Seed, reopenedStore.Metadata.Seed);
+    AssertTrue(loadedChunk is not null, "Expected edited chunk to load from the save store.");
+    AssertEqual((ushort)4, loadedChunk!.GetBlock(new LocalBlockPosition(7, 5, 9)));
+}
+finally
+{
+    if (Directory.Exists(savePath))
+    {
+        Directory.Delete(savePath, recursive: true);
+    }
+}
 
 Console.WriteLine("SharpEngine.World.Tests passed.");
 

@@ -8,6 +8,7 @@ using SharpEngine.World.Blocks;
 using SharpEngine.World.Chunks;
 using SharpEngine.World.Generation;
 using SharpEngine.World.Meshing;
+using SharpEngine.World.Persistence;
 using SharpEngine.World.Raycasting;
 
 using NumericsVector3 = System.Numerics.Vector3;
@@ -33,11 +34,13 @@ public sealed class GameClient : IGameApplication
     private readonly PlayerController _player = new(new NumericsVector3(8.5f, 9.0f, 12.5f));
     private DebugCamera _camera = new(new Vector3(8.5f, 10.5f, 12.5f));
     private TerrainGenerator? _terrainGenerator;
+    private WorldSaveStore? _worldSaveStore;
     private OpenGlDebugRenderer? _renderer;
     private WorldVoxelRaycastHit? _selection;
     private int _editCount;
     private int _fixedTicks;
     private int _loadedRadius;
+    private int _savedChunkCount;
     private int _selectedHotbarSlot;
 
     public GameClient(BlockRegistry blocks)
@@ -48,7 +51,12 @@ public sealed class GameClient : IGameApplication
     public void Load(PlatformContext context)
     {
         _renderer = new OpenGlDebugRenderer(context.Width, context.Height);
-        _terrainGenerator = CreateTerrainGenerator();
+        TerrainGeneratorSettings defaultSettings = CreateTerrainGeneratorSettings(seed: 19790503, waterLevel: 4);
+        _worldSaveStore = WorldSaveStore.OpenOrCreate(GetDefaultWorldPath(), "Dev World", defaultSettings);
+        _terrainGenerator = new TerrainGenerator(CreateTerrainGeneratorSettings(
+            _worldSaveStore.Metadata.Seed,
+            _worldSaveStore.Metadata.WaterLevel));
+        _savedChunkCount = _worldSaveStore.SavedChunkCount;
         LoadInitialChunks(renderRadius: 2);
         MovePlayerToSpawn();
         SyncCameraToPlayer();
@@ -110,6 +118,7 @@ public sealed class GameClient : IGameApplication
 
     public void Unload()
     {
+        _worldSaveStore?.TouchLastPlayed();
         _renderer?.Dispose();
     }
 
@@ -189,7 +198,7 @@ public sealed class GameClient : IGameApplication
             : "NONE";
 
         string motionText = _player.IsSwimming ? "SWIM" : _player.IsCrouching ? "CROUCH" : _player.IsGrounded ? "GROUND" : "AIR";
-        return $"SEL: {selectionText}\nHOTBAR: {_selectedHotbarSlot + 1}/{selectedBlockName}  EDITS: {_editCount}\nCHUNKS: {_chunks.Count}  RADIUS: {_loadedRadius}\nMOTION: {motionText}\nVEL: {_player.Velocity.X:0.0},{_player.Velocity.Y:0.0},{_player.Velocity.Z:0.0}";
+        return $"SEL: {selectionText}\nHOTBAR: {_selectedHotbarSlot + 1}/{selectedBlockName}  EDITS: {_editCount}\nCHUNKS: {_chunks.Count}  RADIUS: {_loadedRadius}  SAVED: {_savedChunkCount}\nMOTION: {motionText}\nVEL: {_player.Velocity.X:0.0},{_player.Velocity.Y:0.0},{_player.Velocity.Z:0.0}";
     }
 
     private PlayerInput CreatePlayerInput(InputSnapshot input)
@@ -284,16 +293,16 @@ public sealed class GameClient : IGameApplication
             for (int chunkX = -renderRadius; chunkX <= renderRadius; chunkX++)
             {
                 ChunkPosition position = new(chunkX, chunkZ);
-                _chunks[position] = _terrainGenerator.GenerateChunk(position);
+                _chunks[position] = _worldSaveStore?.TryLoadChunk(position) ?? _terrainGenerator.GenerateChunk(position);
             }
         }
     }
 
-    private static TerrainGenerator CreateTerrainGenerator()
+    private static TerrainGeneratorSettings CreateTerrainGeneratorSettings(int seed, int waterLevel)
     {
-        return new TerrainGenerator(new TerrainGeneratorSettings(
-            Seed: 19790503,
-            WaterLevel: 4,
+        return new TerrainGeneratorSettings(
+            seed,
+            waterLevel,
             new TerrainBlockPalette(
                 BlockIds.Air,
                 BlockIds.Grass,
@@ -301,7 +310,16 @@ public sealed class GameClient : IGameApplication
                 BlockIds.Stone,
                 BlockIds.Sand,
                 BlockIds.Log,
-                BlockIds.Leaves)));
+                BlockIds.Leaves));
+    }
+
+    private static string GetDefaultWorldPath()
+    {
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "SharpEngine",
+            "worlds",
+            "dev-world");
     }
 
     private bool IsLoadedBlock(BlockPosition position)
@@ -327,6 +345,8 @@ public sealed class GameClient : IGameApplication
         }
 
         chunk.SetBlock(position.ToLocalBlockPosition(), blockId);
+        _worldSaveStore?.SaveChunk(chunk);
+        _savedChunkCount = _worldSaveStore?.SavedChunkCount ?? 0;
     }
 
     private bool IsSolidBlock(BlockPosition position)
