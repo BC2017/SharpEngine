@@ -12,6 +12,7 @@ namespace SharpEngine.Client;
 public sealed class GameClient : IGameApplication
 {
     private readonly BlockRegistry _blocks;
+    private readonly DebugFrameTimer _frameTimer = new();
     private readonly ChunkMesher _mesher = new();
     private DebugCamera _camera = new(new Vector3(8.0f, 7.0f, 28.0f));
     private OpenGlDebugRenderer? _renderer;
@@ -42,7 +43,17 @@ public sealed class GameClient : IGameApplication
 
     public void Render(GameTime time)
     {
-        _renderer?.RenderFrame(_camera, time.Total);
+        _frameTimer.RecordFrame(time.Delta);
+
+        _renderer?.RenderFrame(
+            _camera,
+            time.Total,
+            new DebugOverlaySnapshot(
+                IsVisible: true,
+                _frameTimer.FramesPerSecond,
+                _frameTimer.FrameTimeMilliseconds,
+                _fixedTicks,
+                _camera.Position));
     }
 
     public void Resize(int width, int height)

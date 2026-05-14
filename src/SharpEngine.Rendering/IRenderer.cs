@@ -6,5 +6,5 @@ public interface IRenderer : IDisposable
 
     void Resize(int width, int height);
 
-    void RenderFrame(DebugCamera camera, TimeSpan totalTime);
+    void RenderFrame(DebugCamera camera, TimeSpan totalTime, DebugOverlaySnapshot debugOverlay);
 }
