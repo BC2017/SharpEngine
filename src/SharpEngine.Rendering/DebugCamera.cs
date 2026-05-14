@@ -19,6 +19,22 @@ public sealed class DebugCamera
 
     public Vector3 Position { get; private set; }
 
+    public Vector3 Forward
+    {
+        get
+        {
+            float yaw = MathHelper.DegreesToRadians(_yaw);
+            float pitch = MathHelper.DegreesToRadians(_pitch);
+
+            Vector3 forward = new(
+                MathF.Cos(yaw) * MathF.Cos(pitch),
+                MathF.Sin(pitch),
+                MathF.Sin(yaw) * MathF.Cos(pitch));
+
+            return Vector3.Normalize(forward);
+        }
+    }
+
     public Matrix4 GetViewMatrix()
     {
         return Matrix4.LookAt(Position, Position + Forward, Vector3.UnitY);
@@ -78,22 +94,6 @@ public sealed class DebugCamera
 
         float speed = input.Sprint ? BaseSpeed * SprintMultiplier : BaseSpeed;
         Position += movement * speed * deltaSeconds;
-    }
-
-    private Vector3 Forward
-    {
-        get
-        {
-            float yaw = MathHelper.DegreesToRadians(_yaw);
-            float pitch = MathHelper.DegreesToRadians(_pitch);
-
-            Vector3 forward = new(
-                MathF.Cos(yaw) * MathF.Cos(pitch),
-                MathF.Sin(pitch),
-                MathF.Sin(yaw) * MathF.Cos(pitch));
-
-            return Vector3.Normalize(forward);
-        }
     }
 
     private Vector3 Right => Vector3.Normalize(Vector3.Cross(Forward, Vector3.UnitY));

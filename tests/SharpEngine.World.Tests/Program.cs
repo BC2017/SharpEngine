@@ -1,6 +1,7 @@
 using SharpEngine.World.Blocks;
 using SharpEngine.World.Chunks;
 using SharpEngine.World.Meshing;
+using SharpEngine.World.Raycasting;
 
 BlockRegistry registry = new();
 registry.Register(new BlockDefinition(1, "sharpengine:stone", IsSolid: true, IsOpaque: true, LightEmission: 0));
@@ -37,6 +38,25 @@ ChunkMeshData adjacentBlockMesh = mesher.BuildMesh(adjacentBlockChunk, meshRegis
 AssertEqual(10, adjacentBlockMesh.FaceCount);
 AssertEqual(40, adjacentBlockMesh.Vertices.Count);
 AssertEqual(60, adjacentBlockMesh.Indices.Count);
+
+LocalBlockPosition solidPosition = new(4, 3, 2);
+VoxelRaycastHit? hitFromOutside = VoxelRaycaster.Raycast(
+    new System.Numerics.Vector3(4.5f, 3.5f, 8.0f),
+    new System.Numerics.Vector3(0.0f, 0.0f, -1.0f),
+    maxDistance: 12.0f,
+    position => position == solidPosition);
+
+AssertEqual(solidPosition, hitFromOutside?.Block);
+AssertEqual(new LocalBlockPosition(4, 3, 3), hitFromOutside?.Adjacent);
+AssertEqual(1, hitFromOutside?.NormalZ);
+
+VoxelRaycastHit? miss = VoxelRaycaster.Raycast(
+    new System.Numerics.Vector3(4.5f, 3.5f, 8.0f),
+    new System.Numerics.Vector3(0.0f, 1.0f, 0.0f),
+    maxDistance: 4.0f,
+    position => position == solidPosition);
+
+AssertEqual(null, miss);
 
 Console.WriteLine("SharpEngine.World.Tests passed.");
 

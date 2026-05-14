@@ -38,6 +38,7 @@ internal sealed class DebugOverlayRenderer : IDisposable
         List<float> vertices = [];
         float y = 12.0f;
 
+        AddCrosshair(vertices, width, height);
         AddPanel(vertices, 8.0f, 8.0f, 360.0f, 22.0f + (lines.Length * LineHeight));
 
         foreach (string line in lines)
@@ -138,6 +139,16 @@ internal sealed class DebugOverlayRenderer : IDisposable
     private static void AddPanel(List<float> vertices, float x, float y, float width, float height)
     {
         AddQuad(vertices, x, y, width, height, (0.02f, 0.03f, 0.04f, 0.72f));
+    }
+
+    private static void AddCrosshair(List<float> vertices, int width, int height)
+    {
+        float centerX = width * 0.5f;
+        float centerY = height * 0.5f;
+        (float R, float G, float B, float A) color = (0.02f, 0.02f, 0.02f, 0.85f);
+
+        AddQuad(vertices, centerX - 8.0f, centerY - 1.0f, 16.0f, 2.0f, color);
+        AddQuad(vertices, centerX - 1.0f, centerY - 8.0f, 2.0f, 16.0f, color);
     }
 
     private static void AddQuad(

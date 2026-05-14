@@ -15,6 +15,8 @@ public sealed class OpenTkGameHost : GameWindow
     private readonly TimeSpan _fixedStep;
     private TimeSpan _accumulator;
     private TimeSpan _total;
+    private bool _wasLeftMouseDown;
+    private bool _wasRightMouseDown;
 
     public OpenTkGameHost(GameHostSettings settings, IGameApplication application)
         : base(
@@ -81,6 +83,14 @@ public sealed class OpenTkGameHost : GameWindow
 
     private InputSnapshot CaptureInput()
     {
+        bool isLeftMouseDown = MouseState.IsButtonDown(MouseButton.Left);
+        bool isRightMouseDown = MouseState.IsButtonDown(MouseButton.Right);
+        bool breakBlock = isLeftMouseDown && !_wasLeftMouseDown;
+        bool placeBlock = isRightMouseDown && !_wasRightMouseDown;
+
+        _wasLeftMouseDown = isLeftMouseDown;
+        _wasRightMouseDown = isRightMouseDown;
+
         return new InputSnapshot(
             KeyboardState.IsKeyDown(Keys.Escape),
             KeyboardState.IsKeyDown(Keys.W),
@@ -90,8 +100,46 @@ public sealed class OpenTkGameHost : GameWindow
             KeyboardState.IsKeyDown(Keys.Space),
             KeyboardState.IsKeyDown(Keys.LeftControl),
             KeyboardState.IsKeyDown(Keys.LeftShift),
+            breakBlock,
+            placeBlock,
+            GetSelectedHotbarSlot(),
             MouseState.Delta.X,
             MouseState.Delta.Y);
+    }
+
+    private int GetSelectedHotbarSlot()
+    {
+        if (KeyboardState.IsKeyDown(Keys.D1))
+        {
+            return 0;
+        }
+
+        if (KeyboardState.IsKeyDown(Keys.D2))
+        {
+            return 1;
+        }
+
+        if (KeyboardState.IsKeyDown(Keys.D3))
+        {
+            return 2;
+        }
+
+        if (KeyboardState.IsKeyDown(Keys.D4))
+        {
+            return 3;
+        }
+
+        if (KeyboardState.IsKeyDown(Keys.D5))
+        {
+            return 4;
+        }
+
+        if (KeyboardState.IsKeyDown(Keys.D6))
+        {
+            return 5;
+        }
+
+        return -1;
     }
 
     private static GameWindowSettings CreateGameWindowSettings()

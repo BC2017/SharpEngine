@@ -7,5 +7,6 @@ public readonly record struct DebugOverlaySnapshot(
     double FramesPerSecond,
     double FrameTimeMilliseconds,
     int FixedTicks,
-    Vector3 CameraPosition);
+    Vector3 CameraPosition,
+    string InteractionText = "");
 
