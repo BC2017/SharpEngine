@@ -7,6 +7,11 @@ internal static class VoxelMeshConverter
 {
     public static VoxelRenderMesh ToRenderMesh(ChunkMeshData mesh)
     {
+        return ToRenderMesh(mesh, visibleChunkCount: 1);
+    }
+
+    public static VoxelRenderMesh ToRenderMesh(ChunkMeshData mesh, int visibleChunkCount)
+    {
         VoxelRenderVertex[] vertices = new VoxelRenderVertex[mesh.Vertices.Count];
 
         for (int i = 0; i < mesh.Vertices.Count; i++)
@@ -24,7 +29,6 @@ internal static class VoxelMeshConverter
                 vertex.TextureIndex);
         }
 
-        return new VoxelRenderMesh(vertices, [.. mesh.Indices]);
+        return new VoxelRenderMesh(vertices, [.. mesh.Indices], visibleChunkCount);
     }
 }
-

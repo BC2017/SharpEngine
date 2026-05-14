@@ -6,6 +6,7 @@ using SharpEngine.Platform.Input;
 using SharpEngine.Rendering;
 using SharpEngine.World.Blocks;
 using SharpEngine.World.Chunks;
+using SharpEngine.World.Generation;
 using SharpEngine.World.Meshing;
 using SharpEngine.World.Raycasting;
 
@@ -27,14 +28,16 @@ public sealed class GameClient : IGameApplication
         BlockIds.Leaves
     ];
 
+    private readonly Dictionary<ChunkPosition, Chunk> _chunks = [];
     private readonly ChunkMesher _mesher = new();
     private readonly PlayerController _player = new(new NumericsVector3(8.5f, 9.0f, 12.5f));
     private DebugCamera _camera = new(new Vector3(8.5f, 10.5f, 12.5f));
-    private Chunk? _chunk;
+    private TerrainGenerator? _terrainGenerator;
     private OpenGlDebugRenderer? _renderer;
-    private VoxelRaycastHit? _selection;
+    private WorldVoxelRaycastHit? _selection;
     private int _editCount;
     private int _fixedTicks;
+    private int _loadedRadius;
     private int _selectedHotbarSlot;
 
     public GameClient(BlockRegistry blocks)
@@ -45,7 +48,8 @@ public sealed class GameClient : IGameApplication
     public void Load(PlatformContext context)
     {
         _renderer = new OpenGlDebugRenderer(context.Width, context.Height);
-        _chunk = CreateDemoChunk();
+        _terrainGenerator = CreateTerrainGenerator();
+        LoadInitialChunks(renderRadius: 2);
         MovePlayerToSpawn();
         SyncCameraToPlayer();
         RebuildChunkMesh();
@@ -113,7 +117,7 @@ public sealed class GameClient : IGameApplication
 
     private void UpdateSelection()
     {
-        if (_chunk is null)
+        if (_chunks.Count == 0)
         {
             _selection = null;
             _renderer?.SetSelection(null);
@@ -123,11 +127,11 @@ public sealed class GameClient : IGameApplication
         NumericsVector3 origin = new(_camera.Position.X, _camera.Position.Y, _camera.Position.Z);
         NumericsVector3 direction = new(_camera.Forward.X, _camera.Forward.Y, _camera.Forward.Z);
 
-        _selection = VoxelRaycaster.Raycast(
+        _selection = VoxelRaycaster.RaycastWorld(
             origin,
             direction,
             maxDistance: 8.0f,
-            position => _blocks.Get(_chunk.GetBlock(position)).IsSolid);
+            IsSolidBlock);
 
         _renderer?.SetSelection(_selection is { } hit
             ? new VoxelSelectionBox(hit.Block.X, hit.Block.Y, hit.Block.Z)
@@ -136,12 +140,12 @@ public sealed class GameClient : IGameApplication
 
     private void BreakSelectedBlock()
     {
-        if (_chunk is null || _selection is not { } hit)
+        if (_selection is not { } hit)
         {
             return;
         }
 
-        _chunk.SetBlock(hit.Block, BlockIds.Air);
+        SetBlock(hit.Block, BlockIds.Air);
         _editCount++;
         RebuildChunkMesh();
         UpdateSelection();
@@ -149,17 +153,17 @@ public sealed class GameClient : IGameApplication
 
     private void PlaceSelectedBlock()
     {
-        if (_chunk is null || _selection is not { } hit || !IsInsideChunk(hit.Adjacent))
+        if (_selection is not { } hit || !IsLoadedBlock(hit.Adjacent))
         {
             return;
         }
 
-        if (_chunk.GetBlock(hit.Adjacent) != BlockIds.Air || WouldBlockIntersectPlayer(hit.Adjacent))
+        if (GetBlock(hit.Adjacent) != BlockIds.Air || WouldBlockIntersectPlayer(hit.Adjacent))
         {
             return;
         }
 
-        _chunk.SetBlock(hit.Adjacent, _hotbarBlocks[_selectedHotbarSlot]);
+        SetBlock(hit.Adjacent, _hotbarBlocks[_selectedHotbarSlot]);
         _editCount++;
         RebuildChunkMesh();
         UpdateSelection();
@@ -167,13 +171,14 @@ public sealed class GameClient : IGameApplication
 
     private void RebuildChunkMesh()
     {
-        if (_chunk is null)
+        ChunkMeshData combinedMesh = new();
+
+        foreach (Chunk chunk in _chunks.Values)
         {
-            return;
+            combinedMesh.Append(_mesher.BuildMesh(chunk, _blocks, IsOpaqueBlock));
         }
 
-        ChunkMeshData mesh = _mesher.BuildMesh(_chunk, _blocks);
-        _renderer?.LoadChunkMesh(VoxelMeshConverter.ToRenderMesh(mesh));
+        _renderer?.LoadChunkMesh(VoxelMeshConverter.ToRenderMesh(combinedMesh, _chunks.Count));
     }
 
     private string GetInteractionDebugText()
@@ -184,14 +189,7 @@ public sealed class GameClient : IGameApplication
             : "NONE";
 
         string motionText = _player.IsSwimming ? "SWIM" : _player.IsCrouching ? "CROUCH" : _player.IsGrounded ? "GROUND" : "AIR";
-        return $"SEL: {selectionText}\nHOTBAR: {_selectedHotbarSlot + 1}/{selectedBlockName}  EDITS: {_editCount}\nMOTION: {motionText}\nVEL: {_player.Velocity.X:0.0},{_player.Velocity.Y:0.0},{_player.Velocity.Z:0.0}";
-    }
-
-    private static bool IsInsideChunk(LocalBlockPosition position)
-    {
-        return position.X is >= 0 and < Chunk.Size &&
-            position.Y is >= 0 and < Chunk.Height &&
-            position.Z is >= 0 and < Chunk.Size;
+        return $"SEL: {selectionText}\nHOTBAR: {_selectedHotbarSlot + 1}/{selectedBlockName}  EDITS: {_editCount}\nCHUNKS: {_chunks.Count}  RADIUS: {_loadedRadius}\nMOTION: {motionText}\nVEL: {_player.Velocity.X:0.0},{_player.Velocity.Y:0.0},{_player.Velocity.Z:0.0}";
     }
 
     private PlayerInput CreatePlayerInput(InputSnapshot input)
@@ -214,11 +212,6 @@ public sealed class GameClient : IGameApplication
 
     private bool IsAabbOverlappingSolid(NumericsVector3 center, NumericsVector3 halfExtents)
     {
-        if (_chunk is null)
-        {
-            return false;
-        }
-
         int minX = (int)MathF.Floor(center.X - halfExtents.X);
         int maxX = (int)MathF.Floor(center.X + halfExtents.X - 0.001f);
         int minY = (int)MathF.Floor(center.Y - halfExtents.Y);
@@ -232,7 +225,7 @@ public sealed class GameClient : IGameApplication
             {
                 for (int x = minX; x <= maxX; x++)
                 {
-                    if (x is < 0 or >= Chunk.Size || z is < 0 or >= Chunk.Size || y < 0)
+                    if (y < 0)
                     {
                         return true;
                     }
@@ -242,8 +235,7 @@ public sealed class GameClient : IGameApplication
                         continue;
                     }
 
-                    ushort blockId = _chunk.GetBlock(new LocalBlockPosition(x, y, z));
-                    if (_blocks.Get(blockId).IsSolid)
+                    if (IsSolidBlock(new BlockPosition(x, y, z)))
                     {
                         return true;
                     }
@@ -254,7 +246,7 @@ public sealed class GameClient : IGameApplication
         return false;
     }
 
-    private bool WouldBlockIntersectPlayer(LocalBlockPosition block)
+    private bool WouldBlockIntersectPlayer(BlockPosition block)
     {
         NumericsVector3 min = new(block.X, block.Y, block.Z);
         NumericsVector3 max = min + NumericsVector3.One;
@@ -274,76 +266,84 @@ public sealed class GameClient : IGameApplication
 
     private void MovePlayerToSpawn()
     {
-        int groundY = _chunk is null ? 0 : FindHighestSolidBlock(_chunk, 8, 12);
+        int groundY = FindHighestSolidBlock(worldX: 8, worldZ: 12);
         NumericsVector3 spawn = new(8.5f, groundY + 1.0f + _player.HalfExtents.Y, 12.5f);
         _player.Teleport(spawn);
     }
 
-    private static Chunk CreateDemoChunk()
+    private void LoadInitialChunks(int renderRadius)
     {
-        Chunk chunk = new(new ChunkPosition(0, 0));
-
-        for (int z = 0; z < Chunk.Size; z++)
+        if (_terrainGenerator is null)
         {
-            for (int x = 0; x < Chunk.Size; x++)
-            {
-                int height = 3 + (int)MathF.Round(MathF.Sin(x * 0.55f) + MathF.Cos(z * 0.45f));
-                height = Math.Clamp(height, 1, Chunk.Height - 1);
-
-                for (int y = 0; y <= height; y++)
-                {
-                    ushort blockId = y == height ? BlockIds.Grass : y > height - 3 ? BlockIds.Dirt : BlockIds.Stone;
-                    chunk.SetBlock(new LocalBlockPosition(x, y, z), blockId);
-                }
-
-                if ((x + z) % 11 == 0 && height + 1 < Chunk.Height)
-                {
-                    chunk.SetBlock(new LocalBlockPosition(x, height + 1, z), BlockIds.Sand);
-                }
-            }
+            return;
         }
 
-        AddTree(chunk, trunkX: 5, groundZ: 5);
-        AddTree(chunk, trunkX: 11, groundZ: 10);
-
-        return chunk;
-    }
-
-    private static void AddTree(Chunk chunk, int trunkX, int groundZ)
-    {
-        int groundY = FindHighestSolidBlock(chunk, trunkX, groundZ);
-
-        for (int y = groundY + 1; y <= groundY + 4 && y < Chunk.Height; y++)
+        _loadedRadius = renderRadius;
+        for (int chunkZ = -renderRadius; chunkZ <= renderRadius; chunkZ++)
         {
-            chunk.SetBlock(new LocalBlockPosition(trunkX, y, groundZ), BlockIds.Log);
-        }
-
-        for (int y = groundY + 3; y <= groundY + 5 && y < Chunk.Height; y++)
-        {
-            for (int z = groundZ - 2; z <= groundZ + 2; z++)
+            for (int chunkX = -renderRadius; chunkX <= renderRadius; chunkX++)
             {
-                for (int x = trunkX - 2; x <= trunkX + 2; x++)
-                {
-                    if (x is < 0 or >= Chunk.Size || z is < 0 or >= Chunk.Size)
-                    {
-                        continue;
-                    }
-
-                    int distance = Math.Abs(x - trunkX) + Math.Abs(z - groundZ);
-                    if (distance <= 3)
-                    {
-                        chunk.SetBlock(new LocalBlockPosition(x, y, z), BlockIds.Leaves);
-                    }
-                }
+                ChunkPosition position = new(chunkX, chunkZ);
+                _chunks[position] = _terrainGenerator.GenerateChunk(position);
             }
         }
     }
 
-    private static int FindHighestSolidBlock(Chunk chunk, int x, int z)
+    private static TerrainGenerator CreateTerrainGenerator()
+    {
+        return new TerrainGenerator(new TerrainGeneratorSettings(
+            Seed: 19790503,
+            WaterLevel: 4,
+            new TerrainBlockPalette(
+                BlockIds.Air,
+                BlockIds.Grass,
+                BlockIds.Dirt,
+                BlockIds.Stone,
+                BlockIds.Sand,
+                BlockIds.Log,
+                BlockIds.Leaves)));
+    }
+
+    private bool IsLoadedBlock(BlockPosition position)
+    {
+        return position.Y is >= 0 and < Chunk.Height && _chunks.ContainsKey(position.ToChunkPosition());
+    }
+
+    private ushort GetBlock(BlockPosition position)
+    {
+        if (position.Y is < 0 or >= Chunk.Height || !_chunks.TryGetValue(position.ToChunkPosition(), out Chunk? chunk))
+        {
+            return BlockIds.Air;
+        }
+
+        return chunk.GetBlock(position.ToLocalBlockPosition());
+    }
+
+    private void SetBlock(BlockPosition position, ushort blockId)
+    {
+        if (position.Y is < 0 or >= Chunk.Height || !_chunks.TryGetValue(position.ToChunkPosition(), out Chunk? chunk))
+        {
+            return;
+        }
+
+        chunk.SetBlock(position.ToLocalBlockPosition(), blockId);
+    }
+
+    private bool IsSolidBlock(BlockPosition position)
+    {
+        return _blocks.Get(GetBlock(position)).IsSolid;
+    }
+
+    private bool IsOpaqueBlock(BlockPosition position)
+    {
+        return _blocks.Get(GetBlock(position)).IsOpaque;
+    }
+
+    private int FindHighestSolidBlock(int worldX, int worldZ)
     {
         for (int y = Chunk.Height - 1; y >= 0; y--)
         {
-            if (chunk.GetBlock(new LocalBlockPosition(x, y, z)) != BlockIds.Air)
+            if (IsSolidBlock(new BlockPosition(worldX, y, worldZ)))
             {
                 return y;
             }

@@ -1,5 +1,6 @@
 using SharpEngine.World.Blocks;
 using SharpEngine.World.Chunks;
+using SharpEngine.World.Generation;
 using SharpEngine.World.Meshing;
 using SharpEngine.World.Raycasting;
 
@@ -58,6 +59,44 @@ VoxelRaycastHit? miss = VoxelRaycaster.Raycast(
 
 AssertEqual(null, miss);
 
+TerrainGenerator generator = new(new TerrainGeneratorSettings(
+    Seed: 12345,
+    WaterLevel: 4,
+    new TerrainBlockPalette(
+        Air: 0,
+        Grass: 1,
+        Dirt: 2,
+        Stone: 3,
+        Sand: 4,
+        Log: 5,
+        Leaves: 6)));
+
+Chunk generatedA = generator.GenerateChunk(new ChunkPosition(1, -2));
+Chunk generatedB = generator.GenerateChunk(new ChunkPosition(1, -2));
+AssertEqual(generatedA.GetBlock(new LocalBlockPosition(4, generator.GetHeight(20, -28), 4)), generatedB.GetBlock(new LocalBlockPosition(4, generator.GetHeight(20, -28), 4)));
+
+int minGeneratedHeight = int.MaxValue;
+int maxGeneratedHeight = int.MinValue;
+for (int z = -32; z < 32; z++)
+{
+    for (int x = -32; x < 32; x++)
+    {
+        int height = generator.GetHeight(x, z);
+        minGeneratedHeight = Math.Min(minGeneratedHeight, height);
+        maxGeneratedHeight = Math.Max(maxGeneratedHeight, height);
+    }
+}
+
+AssertTrue(maxGeneratedHeight - minGeneratedHeight >= 5, "Expected Perlin terrain to vary by at least five blocks across the sample area.");
+
+WorldVoxelRaycastHit? worldHit = VoxelRaycaster.RaycastWorld(
+    new System.Numerics.Vector3(20.5f, Chunk.Height + 1.0f, -27.5f),
+    new System.Numerics.Vector3(0.0f, -1.0f, 0.0f),
+    maxDistance: Chunk.Height + 2.0f,
+    position => position == new BlockPosition(20, generator.GetHeight(20, -28), -28));
+
+AssertEqual(new BlockPosition(20, generator.GetHeight(20, -28), -28), worldHit?.Block);
+
 Console.WriteLine("SharpEngine.World.Tests passed.");
 
 static void AssertEqual<T>(T expected, T actual)
@@ -65,5 +104,13 @@ static void AssertEqual<T>(T expected, T actual)
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
     {
         throw new InvalidOperationException($"Expected '{expected}', got '{actual}'.");
+    }
+}
+
+static void AssertTrue(bool condition, string message)
+{
+    if (!condition)
+    {
+        throw new InvalidOperationException(message);
     }
 }

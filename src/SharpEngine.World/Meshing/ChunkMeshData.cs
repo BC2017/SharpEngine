@@ -13,6 +13,19 @@ public sealed class ChunkMeshData
 
     public bool IsEmpty => _indices.Count == 0;
 
+    public void Append(ChunkMeshData other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+
+        uint vertexOffset = (uint)_vertices.Count;
+        _vertices.AddRange(other._vertices);
+
+        foreach (uint index in other._indices)
+        {
+            _indices.Add(index + vertexOffset);
+        }
+    }
+
     public void AddQuad(
         ChunkMeshVertex bottomLeft,
         ChunkMeshVertex bottomRight,
@@ -34,4 +47,3 @@ public sealed class ChunkMeshData
         _indices.Add(start + 3);
     }
 }
-
