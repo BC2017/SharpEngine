@@ -24,6 +24,26 @@ public sealed class Chunk
         _blocks[GetIndex(position)] = blockId;
     }
 
+    public ushort[] CopyBlocks()
+    {
+        return [.. _blocks];
+    }
+
+    public void ReplaceBlocks(IReadOnlyList<ushort> blocks)
+    {
+        ArgumentNullException.ThrowIfNull(blocks);
+
+        if (blocks.Count != _blocks.Length)
+        {
+            throw new ArgumentException($"Expected {_blocks.Length} block ids, got {blocks.Count}.", nameof(blocks));
+        }
+
+        for (int i = 0; i < _blocks.Length; i++)
+        {
+            _blocks[i] = blocks[i];
+        }
+    }
+
     private static int GetIndex(LocalBlockPosition position)
     {
         Validate(position);
@@ -48,4 +68,3 @@ public sealed class Chunk
         }
     }
 }
-

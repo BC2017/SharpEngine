@@ -11,6 +11,8 @@ public readonly record struct InputSnapshot(
     bool Sprint,
     bool BreakBlock,
     bool PlaceBlock,
+    bool SaveWorld,
+    bool CreateWorld,
     int SelectedHotbarSlot,
     float MouseDeltaX,
     float MouseDeltaY);
