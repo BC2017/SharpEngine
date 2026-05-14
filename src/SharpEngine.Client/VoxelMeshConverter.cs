@@ -26,7 +26,8 @@ internal static class VoxelMeshConverter
                 vertex.NormalZ,
                 vertex.U,
                 vertex.V,
-                vertex.TextureIndex);
+                vertex.TextureIndex,
+                vertex.Sunlight / (float)SharpEngine.World.Chunks.Chunk.MaxLightLevel);
         }
 
         return new VoxelRenderMesh(vertices, [.. mesh.Indices], visibleChunkCount);

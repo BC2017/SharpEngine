@@ -54,7 +54,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
         GL.BindBuffer(BufferTarget.ArrayBuffer, _vertexBuffer);
         GL.BindBuffer(BufferTarget.ElementArrayBuffer, _indexBuffer);
 
-        int stride = 9 * sizeof(float);
+        int stride = 10 * sizeof(float);
         GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, normalized: false, stride, 0);
         GL.EnableVertexAttribArray(0);
         GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, normalized: false, stride, 3 * sizeof(float));
@@ -63,6 +63,8 @@ public sealed class OpenGlDebugRenderer : IRenderer
         GL.EnableVertexAttribArray(2);
         GL.VertexAttribPointer(3, 1, VertexAttribPointerType.Float, normalized: false, stride, 8 * sizeof(float));
         GL.EnableVertexAttribArray(3);
+        GL.VertexAttribPointer(4, 1, VertexAttribPointerType.Float, normalized: false, stride, 9 * sizeof(float));
+        GL.EnableVertexAttribArray(4);
 
         GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
         GL.BindVertexArray(0);
@@ -84,7 +86,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
     {
         ArgumentNullException.ThrowIfNull(mesh);
 
-        float[] vertices = new float[mesh.Vertices.Count * 9];
+        float[] vertices = new float[mesh.Vertices.Count * 10];
         int cursor = 0;
 
         foreach (VoxelRenderVertex vertex in mesh.Vertices)
@@ -98,6 +100,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
             vertices[cursor++] = vertex.U;
             vertices[cursor++] = vertex.V;
             vertices[cursor++] = vertex.TextureIndex;
+            vertices[cursor++] = vertex.Sunlight;
         }
 
         uint[] indices = [.. mesh.Indices];
@@ -321,10 +324,12 @@ public sealed class OpenGlDebugRenderer : IRenderer
         layout (location = 1) in vec3 aNormal;
         layout (location = 2) in vec2 aTexCoord;
         layout (location = 3) in float aTextureIndex;
+        layout (location = 4) in float aSunlight;
 
         out vec3 vNormal;
         out vec2 vTexCoord;
         out float vTextureIndex;
+        out float vSunlight;
 
         uniform mat4 uModel;
         uniform mat4 uView;
@@ -335,6 +340,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
             vNormal = mat3(uModel) * aNormal;
             vTexCoord = aTexCoord;
             vTextureIndex = aTextureIndex;
+            vSunlight = aSunlight;
             gl_Position = uProjection * uView * uModel * vec4(aPosition, 1.0);
         }
         """;
@@ -345,6 +351,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
         in vec3 vNormal;
         in vec2 vTexCoord;
         in float vTextureIndex;
+        in float vSunlight;
         out vec4 FragColor;
 
         uniform sampler2DArray uTextureArray;
@@ -352,7 +359,9 @@ public sealed class OpenGlDebugRenderer : IRenderer
         void main()
         {
             vec3 lightDirection = normalize(vec3(0.35, 0.85, 0.25));
-            float light = 0.62 + 0.38 * max(dot(normalize(vNormal), lightDirection), 0.0);
+            float directional = 0.55 + 0.45 * max(dot(normalize(vNormal), lightDirection), 0.0);
+            float sunlight = 0.18 + 0.82 * clamp(vSunlight, 0.0, 1.0);
+            float light = directional * sunlight;
             vec4 texel = texture(uTextureArray, vec3(vTexCoord, vTextureIndex));
             FragColor = vec4(texel.rgb * light, texel.a);
         }

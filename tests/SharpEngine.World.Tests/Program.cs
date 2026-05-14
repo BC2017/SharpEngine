@@ -1,6 +1,7 @@
 using SharpEngine.World.Blocks;
 using SharpEngine.World.Chunks;
 using SharpEngine.World.Generation;
+using SharpEngine.World.Lighting;
 using SharpEngine.World.Meshing;
 using SharpEngine.World.Persistence;
 using SharpEngine.World.Raycasting;
@@ -40,6 +41,19 @@ ChunkMeshData adjacentBlockMesh = mesher.BuildMesh(adjacentBlockChunk, meshRegis
 AssertEqual(10, adjacentBlockMesh.FaceCount);
 AssertEqual(40, adjacentBlockMesh.Vertices.Count);
 AssertEqual(60, adjacentBlockMesh.Indices.Count);
+
+SunlightCalculator sunlightCalculator = new();
+Chunk sunlightChunk = new(new ChunkPosition(0, 0));
+sunlightChunk.SetBlock(new LocalBlockPosition(4, 3, 4), 1);
+sunlightCalculator.RebuildSunlight(sunlightChunk, meshRegistry);
+
+AssertEqual(Chunk.MaxLightLevel, sunlightChunk.GetSunlight(new LocalBlockPosition(4, 4, 4)));
+AssertEqual((byte)0, sunlightChunk.GetSunlight(new LocalBlockPosition(4, 2, 4)));
+
+ChunkMeshData sunlightMesh = mesher.BuildMesh(sunlightChunk, meshRegistry);
+AssertTrue(
+    sunlightMesh.Vertices.Any(vertex => vertex.NormalY > 0.0f && vertex.Sunlight == Chunk.MaxLightLevel),
+    "Expected the top face of a sunlit block to carry full sunlight.");
 
 LocalBlockPosition solidPosition = new(4, 3, 2);
 VoxelRaycastHit? hitFromOutside = VoxelRaycaster.Raycast(

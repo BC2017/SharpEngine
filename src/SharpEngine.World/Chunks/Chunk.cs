@@ -4,8 +4,10 @@ public sealed class Chunk
 {
     public const int Size = 16;
     public const int Height = 16;
+    public const byte MaxLightLevel = 15;
 
     private readonly ushort[] _blocks = new ushort[Size * Height * Size];
+    private readonly byte[] _sunlight = new byte[Size * Height * Size];
 
     public Chunk(ChunkPosition position)
     {
@@ -22,6 +24,21 @@ public sealed class Chunk
     public void SetBlock(LocalBlockPosition position, ushort blockId)
     {
         _blocks[GetIndex(position)] = blockId;
+    }
+
+    public byte GetSunlight(LocalBlockPosition position)
+    {
+        return _sunlight[GetIndex(position)];
+    }
+
+    public void SetSunlight(LocalBlockPosition position, byte lightLevel)
+    {
+        _sunlight[GetIndex(position)] = Math.Min(lightLevel, MaxLightLevel);
+    }
+
+    public void ClearSunlight()
+    {
+        Array.Clear(_sunlight);
     }
 
     public ushort[] CopyBlocks()

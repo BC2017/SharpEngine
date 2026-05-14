@@ -9,5 +9,5 @@ public readonly record struct VoxelRenderVertex(
     float NormalZ,
     float U,
     float V,
-    ushort TextureIndex);
-
+    ushort TextureIndex,
+    float Sunlight);
