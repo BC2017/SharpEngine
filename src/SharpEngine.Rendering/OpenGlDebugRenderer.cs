@@ -245,7 +245,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
             return;
         }
 
-        string[] lines =
+        List<string> lines =
         [
             $"FPS: {debugOverlay.FramesPerSecond,6:0.0}",
             $"FRAME: {debugOverlay.FrameTimeMilliseconds,5:0.00} MS",
@@ -257,11 +257,15 @@ public sealed class OpenGlDebugRenderer : IRenderer
             $"CHUNKS: {Stats.VisibleChunks}",
             $"MESH UPLOADS: {Stats.UploadedMeshes}",
             $"TICKS: {debugOverlay.FixedTicks}",
-            $"CAM: {debugOverlay.CameraPosition.X:0.0}, {debugOverlay.CameraPosition.Y:0.0}, {debugOverlay.CameraPosition.Z:0.0}",
-            debugOverlay.InteractionText
+            $"CAM: {debugOverlay.CameraPosition.X:0.0}, {debugOverlay.CameraPosition.Y:0.0}, {debugOverlay.CameraPosition.Z:0.0}"
         ];
 
-        int overlayDrawCalls = _debugOverlayRenderer.Draw(lines, _width, _height);
+        if (!string.IsNullOrWhiteSpace(debugOverlay.InteractionText))
+        {
+            lines.AddRange(debugOverlay.InteractionText.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        }
+
+        int overlayDrawCalls = _debugOverlayRenderer.Draw([.. lines], _width, _height);
         Stats = Stats with { DrawCalls = Stats.DrawCalls + overlayDrawCalls };
     }
 

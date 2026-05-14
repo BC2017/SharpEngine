@@ -39,7 +39,7 @@ internal sealed class DebugOverlayRenderer : IDisposable
         float y = 12.0f;
 
         AddCrosshair(vertices, width, height);
-        AddPanel(vertices, 8.0f, 8.0f, 360.0f, 22.0f + (lines.Length * LineHeight));
+        AddPanel(vertices, 8.0f, 8.0f, 430.0f, 22.0f + (lines.Length * LineHeight));
 
         foreach (string line in lines)
         {

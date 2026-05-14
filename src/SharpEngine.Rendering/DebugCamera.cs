@@ -51,9 +51,7 @@ public sealed class DebugCamera
 
     public void Update(InputSnapshot input, float deltaSeconds)
     {
-        _yaw += input.MouseDeltaX * MouseSensitivity;
-        _pitch -= input.MouseDeltaY * MouseSensitivity;
-        _pitch = Math.Clamp(_pitch, -89.0f, 89.0f);
+        Rotate(input.MouseDeltaX, input.MouseDeltaY);
 
         Vector3 movement = Vector3.Zero;
 
@@ -94,6 +92,18 @@ public sealed class DebugCamera
 
         float speed = input.Sprint ? BaseSpeed * SprintMultiplier : BaseSpeed;
         Position += movement * speed * deltaSeconds;
+    }
+
+    public void Rotate(float mouseDeltaX, float mouseDeltaY)
+    {
+        _yaw += mouseDeltaX * MouseSensitivity;
+        _pitch -= mouseDeltaY * MouseSensitivity;
+        _pitch = Math.Clamp(_pitch, -89.0f, 89.0f);
+    }
+
+    public void SetPosition(Vector3 position)
+    {
+        Position = position;
     }
 
     private Vector3 Right => Vector3.Normalize(Vector3.Cross(Forward, Vector3.UnitY));

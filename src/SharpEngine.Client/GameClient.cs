@@ -1,5 +1,6 @@
 using OpenTK.Mathematics;
 using SharpEngine.Core.Time;
+using SharpEngine.Gameplay.Players;
 using SharpEngine.Platform.Application;
 using SharpEngine.Platform.Input;
 using SharpEngine.Rendering;
@@ -27,7 +28,8 @@ public sealed class GameClient : IGameApplication
     ];
 
     private readonly ChunkMesher _mesher = new();
-    private DebugCamera _camera = new(new Vector3(8.0f, 7.0f, 28.0f));
+    private readonly PlayerController _player = new(new NumericsVector3(8.5f, 9.0f, 12.5f));
+    private DebugCamera _camera = new(new Vector3(8.5f, 10.5f, 12.5f));
     private Chunk? _chunk;
     private OpenGlDebugRenderer? _renderer;
     private VoxelRaycastHit? _selection;
@@ -44,6 +46,8 @@ public sealed class GameClient : IGameApplication
     {
         _renderer = new OpenGlDebugRenderer(context.Width, context.Height);
         _chunk = CreateDemoChunk();
+        MovePlayerToSpawn();
+        SyncCameraToPlayer();
         RebuildChunkMesh();
     }
 
@@ -54,7 +58,12 @@ public sealed class GameClient : IGameApplication
 
     public void Update(GameTime time, InputSnapshot input)
     {
-        _camera.Update(input, (float)time.Delta.TotalSeconds);
+        _camera.Rotate(input.MouseDeltaX, input.MouseDeltaY);
+        _player.Update(
+            CreatePlayerInput(input),
+            (float)time.Delta.TotalSeconds,
+            IsAabbOverlappingSolid);
+        SyncCameraToPlayer();
 
         if (input.SelectedHotbarSlot >= 0 && input.SelectedHotbarSlot < _hotbarBlocks.Length)
         {
@@ -145,7 +154,7 @@ public sealed class GameClient : IGameApplication
             return;
         }
 
-        if (_chunk.GetBlock(hit.Adjacent) != BlockIds.Air)
+        if (_chunk.GetBlock(hit.Adjacent) != BlockIds.Air || WouldBlockIntersectPlayer(hit.Adjacent))
         {
             return;
         }
@@ -174,7 +183,8 @@ public sealed class GameClient : IGameApplication
             ? $"{hit.Block.X},{hit.Block.Y},{hit.Block.Z}"
             : "NONE";
 
-        return $"SEL: {selectionText}  HOTBAR: {_selectedHotbarSlot + 1}/{selectedBlockName}  EDITS: {_editCount}";
+        string motionText = _player.IsSwimming ? "SWIM" : _player.IsCrouching ? "CROUCH" : _player.IsGrounded ? "GROUND" : "AIR";
+        return $"SEL: {selectionText}\nHOTBAR: {_selectedHotbarSlot + 1}/{selectedBlockName}  EDITS: {_editCount}\nMOTION: {motionText}\nVEL: {_player.Velocity.X:0.0},{_player.Velocity.Y:0.0},{_player.Velocity.Z:0.0}";
     }
 
     private static bool IsInsideChunk(LocalBlockPosition position)
@@ -182,6 +192,91 @@ public sealed class GameClient : IGameApplication
         return position.X is >= 0 and < Chunk.Size &&
             position.Y is >= 0 and < Chunk.Height &&
             position.Z is >= 0 and < Chunk.Size;
+    }
+
+    private PlayerInput CreatePlayerInput(InputSnapshot input)
+    {
+        NumericsVector3 forward = new(_camera.Forward.X, _camera.Forward.Y, _camera.Forward.Z);
+        Vector3 cameraRight = Vector3.Normalize(Vector3.Cross(_camera.Forward, Vector3.UnitY));
+        NumericsVector3 right = new(cameraRight.X, cameraRight.Y, cameraRight.Z);
+
+        return new PlayerInput(
+            input.MoveForward,
+            input.MoveBackward,
+            input.MoveLeft,
+            input.MoveRight,
+            Jump: input.MoveUp,
+            Crouch: input.MoveDown,
+            input.Sprint,
+            forward,
+            right);
+    }
+
+    private bool IsAabbOverlappingSolid(NumericsVector3 center, NumericsVector3 halfExtents)
+    {
+        if (_chunk is null)
+        {
+            return false;
+        }
+
+        int minX = (int)MathF.Floor(center.X - halfExtents.X);
+        int maxX = (int)MathF.Floor(center.X + halfExtents.X - 0.001f);
+        int minY = (int)MathF.Floor(center.Y - halfExtents.Y);
+        int maxY = (int)MathF.Floor(center.Y + halfExtents.Y - 0.001f);
+        int minZ = (int)MathF.Floor(center.Z - halfExtents.Z);
+        int maxZ = (int)MathF.Floor(center.Z + halfExtents.Z - 0.001f);
+
+        for (int y = minY; y <= maxY; y++)
+        {
+            for (int z = minZ; z <= maxZ; z++)
+            {
+                for (int x = minX; x <= maxX; x++)
+                {
+                    if (x is < 0 or >= Chunk.Size || z is < 0 or >= Chunk.Size || y < 0)
+                    {
+                        return true;
+                    }
+
+                    if (y >= Chunk.Height)
+                    {
+                        continue;
+                    }
+
+                    ushort blockId = _chunk.GetBlock(new LocalBlockPosition(x, y, z));
+                    if (_blocks.Get(blockId).IsSolid)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private bool WouldBlockIntersectPlayer(LocalBlockPosition block)
+    {
+        NumericsVector3 min = new(block.X, block.Y, block.Z);
+        NumericsVector3 max = min + NumericsVector3.One;
+        NumericsVector3 playerMin = _player.Position - _player.HalfExtents;
+        NumericsVector3 playerMax = _player.Position + _player.HalfExtents;
+
+        return min.X < playerMax.X && max.X > playerMin.X &&
+            min.Y < playerMax.Y && max.Y > playerMin.Y &&
+            min.Z < playerMax.Z && max.Z > playerMin.Z;
+    }
+
+    private void SyncCameraToPlayer()
+    {
+        NumericsVector3 eye = _player.EyePosition;
+        _camera.SetPosition(new Vector3(eye.X, eye.Y, eye.Z));
+    }
+
+    private void MovePlayerToSpawn()
+    {
+        int groundY = _chunk is null ? 0 : FindHighestSolidBlock(_chunk, 8, 12);
+        NumericsVector3 spawn = new(8.5f, groundY + 1.0f + _player.HalfExtents.Y, 12.5f);
+        _player.Teleport(spawn);
     }
 
     private static Chunk CreateDemoChunk()

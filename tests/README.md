@@ -6,6 +6,7 @@ Once the SDK is available, run:
 
 ```powershell
 dotnet run --project tests/SharpEngine.Core.Tests/SharpEngine.Core.Tests.csproj
+dotnet run --project tests/SharpEngine.Gameplay.Tests/SharpEngine.Gameplay.Tests.csproj
 dotnet run --project tests/SharpEngine.Rendering.Tests/SharpEngine.Rendering.Tests.csproj
 dotnet run --project tests/SharpEngine.World.Tests/SharpEngine.World.Tests.csproj
 ```
