@@ -13,10 +13,13 @@ public sealed class TerrainGenerator
 
     public int GetHeight(int worldX, int worldZ)
     {
-        float broad = FractalNoise(worldX * 0.055f, worldZ * 0.055f, octaves: 4, persistence: 0.52f);
-        float detail = FractalNoise((worldX + 91) * 0.15f, (worldZ - 37) * 0.15f, octaves: 2, persistence: 0.45f);
-        int height = 6 + (int)MathF.Round((broad * 4.2f) + (detail * 1.2f));
-        return Math.Clamp(height, 2, Chunk.Height - 4);
+        float continentalness = FractalPerlin(worldX * 0.028f, worldZ * 0.028f, octaves: 4, persistence: 0.56f);
+        float hills = RidgedPerlin((worldX + 211) * 0.062f, (worldZ - 157) * 0.062f, octaves: 3, persistence: 0.50f);
+        float detail = FractalPerlin((worldX - 73) * 0.18f, (worldZ + 43) * 0.18f, octaves: 2, persistence: 0.45f);
+
+        float elevatedLand = MathF.Max(continentalness, -0.35f);
+        float height = 5.5f + (elevatedLand * 4.7f) + (hills * 3.1f) + (detail * 0.9f);
+        return Math.Clamp((int)MathF.Round(height), 2, Chunk.Height - 4);
     }
 
     public Chunk GenerateChunk(ChunkPosition position)
@@ -104,7 +107,7 @@ public sealed class TerrainGenerator
         }
     }
 
-    private float FractalNoise(float x, float z, int octaves, float persistence)
+    private float FractalPerlin(float x, float z, int octaves, float persistence)
     {
         float total = 0.0f;
         float amplitude = 1.0f;
@@ -113,7 +116,7 @@ public sealed class TerrainGenerator
 
         for (int octave = 0; octave < octaves; octave++)
         {
-            total += ValueNoise(x * frequency, z * frequency) * amplitude;
+            total += Perlin(x * frequency, z * frequency) * amplitude;
             max += amplitude;
             amplitude *= persistence;
             frequency *= 2.0f;
@@ -122,28 +125,59 @@ public sealed class TerrainGenerator
         return total / max;
     }
 
-    private float ValueNoise(float x, float z)
+    private float RidgedPerlin(float x, float z, int octaves, float persistence)
+    {
+        float total = 0.0f;
+        float amplitude = 1.0f;
+        float frequency = 1.0f;
+        float max = 0.0f;
+
+        for (int octave = 0; octave < octaves; octave++)
+        {
+            float ridge = 1.0f - MathF.Abs(Perlin(x * frequency, z * frequency));
+            total += (ridge * ridge) * amplitude;
+            max += amplitude;
+            amplitude *= persistence;
+            frequency *= 2.0f;
+        }
+
+        return (total / max) * 2.0f - 1.0f;
+    }
+
+    private float Perlin(float x, float z)
     {
         int x0 = (int)MathF.Floor(x);
         int z0 = (int)MathF.Floor(z);
         int x1 = x0 + 1;
         int z1 = z0 + 1;
-        float sx = SmoothStep(x - x0);
-        float sz = SmoothStep(z - z0);
+        float localX = x - x0;
+        float localZ = z - z0;
+        float sx = Fade(localX);
+        float sz = Fade(localZ);
 
-        float n00 = HashToUnit(x0, z0);
-        float n10 = HashToUnit(x1, z0);
-        float n01 = HashToUnit(x0, z1);
-        float n11 = HashToUnit(x1, z1);
+        float n00 = GradientDot(x0, z0, localX, localZ);
+        float n10 = GradientDot(x1, z0, localX - 1.0f, localZ);
+        float n01 = GradientDot(x0, z1, localX, localZ - 1.0f);
+        float n11 = GradientDot(x1, z1, localX - 1.0f, localZ - 1.0f);
 
         float nx0 = Lerp(n00, n10, sx);
         float nx1 = Lerp(n01, n11, sx);
-        return Lerp(nx0, nx1, sz);
+        return Math.Clamp(Lerp(nx0, nx1, sz) * 1.45f, -1.0f, 1.0f);
     }
 
-    private float HashToUnit(int x, int z)
+    private float GradientDot(int x, int z, float offsetX, float offsetZ)
     {
-        return (Hash(x, z, _settings.Seed) / (float)int.MaxValue) * 2.0f - 1.0f;
+        return (Hash(x, z, _settings.Seed) & 7) switch
+        {
+            0 => offsetX + offsetZ,
+            1 => -offsetX + offsetZ,
+            2 => offsetX - offsetZ,
+            3 => -offsetX - offsetZ,
+            4 => offsetX,
+            5 => -offsetX,
+            6 => offsetZ,
+            _ => -offsetZ,
+        };
     }
 
     private static int Hash(int x, int z, int seed)
@@ -160,9 +194,9 @@ public sealed class TerrainGenerator
         }
     }
 
-    private static float SmoothStep(float value)
+    private static float Fade(float value)
     {
-        return value * value * (3.0f - (2.0f * value));
+        return value * value * value * (value * ((value * 6.0f) - 15.0f) + 10.0f);
     }
 
     private static float Lerp(float a, float b, float amount)
@@ -170,4 +204,3 @@ public sealed class TerrainGenerator
         return a + ((b - a) * amount);
     }
 }
-
