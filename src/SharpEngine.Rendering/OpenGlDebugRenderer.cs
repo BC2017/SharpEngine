@@ -12,6 +12,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
     private readonly int _viewUniform;
     private readonly int _projectionUniform;
     private readonly int _textureArray;
+    private readonly DebugOverlayRenderer _debugOverlayRenderer;
     private int _height;
     private int _indexBuffer;
     private int _indexCount;
@@ -33,6 +34,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
         _vertexBuffer = GL.GenBuffer();
         _indexBuffer = GL.GenBuffer();
         _textureArray = CreateDebugTextureArray();
+        _debugOverlayRenderer = new DebugOverlayRenderer();
 
         GL.BindVertexArray(_vertexArray);
         GL.BindBuffer(BufferTarget.ArrayBuffer, _vertexBuffer);
@@ -90,7 +92,14 @@ public sealed class OpenGlDebugRenderer : IRenderer
 
         _indexCount = indices.Length;
         _hasUploadedMesh = true;
-        Stats = Stats with { UploadedMeshes = Stats.UploadedMeshes + 1 };
+        Stats = Stats with
+        {
+            UploadedMeshes = Stats.UploadedMeshes + 1,
+            VertexCount = mesh.Vertices.Count,
+            IndexCount = mesh.Indices.Count,
+            TriangleCount = mesh.Indices.Count / 3,
+            FaceCount = mesh.Indices.Count / 6
+        };
     }
 
     public void Resize(int width, int height)
@@ -100,7 +109,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
         GL.Viewport(0, 0, _width, _height);
     }
 
-    public void RenderFrame(DebugCamera camera, TimeSpan totalTime)
+    public void RenderFrame(DebugCamera camera, TimeSpan totalTime, DebugOverlaySnapshot debugOverlay)
     {
         float aspectRatio = (float)_width / _height;
         Matrix4 model = Matrix4.Identity;
@@ -113,6 +122,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
         if (!_hasUploadedMesh || _indexCount == 0)
         {
             Stats = Stats with { DrawCalls = 0, VisibleChunks = 0 };
+            RenderDebugOverlay(debugOverlay);
             return;
         }
 
@@ -129,6 +139,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
         GL.BindVertexArray(0);
 
         Stats = Stats with { DrawCalls = 1, VisibleChunks = 1 };
+        RenderDebugOverlay(debugOverlay);
     }
 
     public void Dispose()
@@ -143,7 +154,34 @@ public sealed class OpenGlDebugRenderer : IRenderer
         GL.DeleteVertexArray(_vertexArray);
         GL.DeleteTexture(_textureArray);
         GL.DeleteProgram(_shaderProgram);
+        _debugOverlayRenderer.Dispose();
         _disposed = true;
+    }
+
+    private void RenderDebugOverlay(DebugOverlaySnapshot debugOverlay)
+    {
+        if (!debugOverlay.IsVisible)
+        {
+            return;
+        }
+
+        string[] lines =
+        [
+            $"FPS: {debugOverlay.FramesPerSecond,6:0.0}",
+            $"FRAME: {debugOverlay.FrameTimeMilliseconds,5:0.00} MS",
+            $"DRAWS: {Stats.DrawCalls}",
+            $"TRIS: {Stats.TriangleCount}",
+            $"FACES: {Stats.FaceCount}",
+            $"VERTS: {Stats.VertexCount}",
+            $"INDICES: {Stats.IndexCount}",
+            $"CHUNKS: {Stats.VisibleChunks}",
+            $"MESH UPLOADS: {Stats.UploadedMeshes}",
+            $"TICKS: {debugOverlay.FixedTicks}",
+            $"CAM: {debugOverlay.CameraPosition.X:0.0}, {debugOverlay.CameraPosition.Y:0.0}, {debugOverlay.CameraPosition.Z:0.0}"
+        ];
+
+        int overlayDrawCalls = _debugOverlayRenderer.Draw(lines, _width, _height);
+        Stats = Stats with { DrawCalls = Stats.DrawCalls + overlayDrawCalls };
     }
 
     private static int CreateShaderProgram(string vertexSource, string fragmentSource)
