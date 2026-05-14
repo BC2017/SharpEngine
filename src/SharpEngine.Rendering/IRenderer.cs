@@ -4,6 +4,7 @@ public interface IRenderer : IDisposable
 {
     RenderStats Stats { get; }
 
-    void RenderFrame();
-}
+    void Resize(int width, int height);
 
+    void RenderFrame(DebugCamera camera, TimeSpan totalTime);
+}
