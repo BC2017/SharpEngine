@@ -1,5 +1,6 @@
 using SharpEngine.World.Blocks;
 using SharpEngine.World.Chunks;
+using SharpEngine.World.Generation;
 using SharpEngine.World.Meshing;
 using SharpEngine.World.Raycasting;
 
@@ -57,6 +58,30 @@ VoxelRaycastHit? miss = VoxelRaycaster.Raycast(
     position => position == solidPosition);
 
 AssertEqual(null, miss);
+
+TerrainGenerator generator = new(new TerrainGeneratorSettings(
+    Seed: 12345,
+    WaterLevel: 4,
+    new TerrainBlockPalette(
+        Air: 0,
+        Grass: 1,
+        Dirt: 2,
+        Stone: 3,
+        Sand: 4,
+        Log: 5,
+        Leaves: 6)));
+
+Chunk generatedA = generator.GenerateChunk(new ChunkPosition(1, -2));
+Chunk generatedB = generator.GenerateChunk(new ChunkPosition(1, -2));
+AssertEqual(generatedA.GetBlock(new LocalBlockPosition(4, generator.GetHeight(20, -28), 4)), generatedB.GetBlock(new LocalBlockPosition(4, generator.GetHeight(20, -28), 4)));
+
+WorldVoxelRaycastHit? worldHit = VoxelRaycaster.RaycastWorld(
+    new System.Numerics.Vector3(20.5f, 8.5f, -27.5f),
+    new System.Numerics.Vector3(0.0f, -1.0f, 0.0f),
+    maxDistance: 12.0f,
+    position => position == new BlockPosition(20, generator.GetHeight(20, -28), -28));
+
+AssertEqual(new BlockPosition(20, generator.GetHeight(20, -28), -28), worldHit?.Block);
 
 Console.WriteLine("SharpEngine.World.Tests passed.");
 

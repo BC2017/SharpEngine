@@ -22,6 +22,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
     private int _height;
     private int _indexBuffer;
     private int _indexCount;
+    private int _visibleChunkCount;
     private int _width;
     private bool _disposed;
     private bool _hasUploadedMesh;
@@ -111,10 +112,12 @@ public sealed class OpenGlDebugRenderer : IRenderer
         GL.BindVertexArray(0);
 
         _indexCount = indices.Length;
+        _visibleChunkCount = mesh.VisibleChunkCount;
         _hasUploadedMesh = true;
         Stats = Stats with
         {
             UploadedMeshes = Stats.UploadedMeshes + 1,
+            VisibleChunks = _visibleChunkCount,
             VertexCount = mesh.Vertices.Count,
             IndexCount = mesh.Indices.Count,
             TriangleCount = mesh.Indices.Count / 3,
@@ -163,7 +166,7 @@ public sealed class OpenGlDebugRenderer : IRenderer
         GL.DrawElements(PrimitiveType.Triangles, _indexCount, DrawElementsType.UnsignedInt, 0);
         GL.BindVertexArray(0);
 
-        Stats = Stats with { DrawCalls = 1, VisibleChunks = 1 };
+        Stats = Stats with { DrawCalls = 1, VisibleChunks = _visibleChunkCount };
         RenderSelection(camera);
         RenderDebugOverlay(debugOverlay);
     }

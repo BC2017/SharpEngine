@@ -5,7 +5,7 @@ namespace SharpEngine.World.Meshing;
 
 public sealed class ChunkMesher
 {
-    public ChunkMeshData BuildMesh(Chunk chunk, BlockRegistry blocks)
+    public ChunkMeshData BuildMesh(Chunk chunk, BlockRegistry blocks, Func<BlockPosition, bool>? isOpaqueAt = null)
     {
         ArgumentNullException.ThrowIfNull(chunk);
         ArgumentNullException.ThrowIfNull(blocks);
@@ -27,7 +27,7 @@ public sealed class ChunkMesher
                         continue;
                     }
 
-                    AddVisibleFaces(mesh, chunk, blocks, position, block.TextureIndex);
+                    AddVisibleFaces(mesh, chunk, blocks, position, block.TextureIndex, isOpaqueAt);
                 }
             }
         }
@@ -40,48 +40,69 @@ public sealed class ChunkMesher
         Chunk chunk,
         BlockRegistry blocks,
         LocalBlockPosition position,
-        ushort textureIndex)
+        ushort textureIndex,
+        Func<BlockPosition, bool>? isOpaqueAt)
     {
         int x = position.X;
         int y = position.Y;
         int z = position.Z;
+        int worldX = (chunk.Position.X * Chunk.Size) + x;
+        int worldZ = (chunk.Position.Z * Chunk.Size) + z;
 
-        if (IsFaceVisible(chunk, blocks, x, y, z + 1))
+        if (IsFaceVisible(chunk, blocks, isOpaqueAt, x, y, z + 1))
         {
-            AddSouthFace(mesh, x, y, z, textureIndex);
+            AddSouthFace(mesh, worldX, y, worldZ, textureIndex);
         }
 
-        if (IsFaceVisible(chunk, blocks, x, y, z - 1))
+        if (IsFaceVisible(chunk, blocks, isOpaqueAt, x, y, z - 1))
         {
-            AddNorthFace(mesh, x, y, z, textureIndex);
+            AddNorthFace(mesh, worldX, y, worldZ, textureIndex);
         }
 
-        if (IsFaceVisible(chunk, blocks, x - 1, y, z))
+        if (IsFaceVisible(chunk, blocks, isOpaqueAt, x - 1, y, z))
         {
-            AddWestFace(mesh, x, y, z, textureIndex);
+            AddWestFace(mesh, worldX, y, worldZ, textureIndex);
         }
 
-        if (IsFaceVisible(chunk, blocks, x + 1, y, z))
+        if (IsFaceVisible(chunk, blocks, isOpaqueAt, x + 1, y, z))
         {
-            AddEastFace(mesh, x, y, z, textureIndex);
+            AddEastFace(mesh, worldX, y, worldZ, textureIndex);
         }
 
-        if (IsFaceVisible(chunk, blocks, x, y + 1, z))
+        if (IsFaceVisible(chunk, blocks, isOpaqueAt, x, y + 1, z))
         {
-            AddTopFace(mesh, x, y, z, textureIndex);
+            AddTopFace(mesh, worldX, y, worldZ, textureIndex);
         }
 
-        if (IsFaceVisible(chunk, blocks, x, y - 1, z))
+        if (IsFaceVisible(chunk, blocks, isOpaqueAt, x, y - 1, z))
         {
-            AddBottomFace(mesh, x, y, z, textureIndex);
+            AddBottomFace(mesh, worldX, y, worldZ, textureIndex);
         }
     }
 
-    private static bool IsFaceVisible(Chunk chunk, BlockRegistry blocks, int x, int y, int z)
+    private static bool IsFaceVisible(
+        Chunk chunk,
+        BlockRegistry blocks,
+        Func<BlockPosition, bool>? isOpaqueAt,
+        int x,
+        int y,
+        int z)
     {
-        if (x is < 0 or >= Chunk.Size || y is < 0 or >= Chunk.Height || z is < 0 or >= Chunk.Size)
+        if (y is < 0 or >= Chunk.Height)
         {
             return true;
+        }
+
+        if (x is < 0 or >= Chunk.Size || z is < 0 or >= Chunk.Size)
+        {
+            if (isOpaqueAt is null)
+            {
+                return true;
+            }
+
+            int worldX = (chunk.Position.X * Chunk.Size) + x;
+            int worldZ = (chunk.Position.Z * Chunk.Size) + z;
+            return !isOpaqueAt(new BlockPosition(worldX, y, worldZ));
         }
 
         ushort neighborId = chunk.GetBlock(new LocalBlockPosition(x, y, z));
@@ -184,4 +205,3 @@ public sealed class ChunkMesher
             Vertex(x, y, z + 1.0f, nx, ny, nz, 0.0f, 1.0f, textureIndex));
     }
 }
-
