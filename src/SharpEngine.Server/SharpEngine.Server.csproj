@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SharpEngine.Core\SharpEngine.Core.csproj" />
+    <ProjectReference Include="..\SharpEngine.Gameplay\SharpEngine.Gameplay.csproj" />
+    <ProjectReference Include="..\SharpEngine.World\SharpEngine.World.csproj" />
+  </ItemGroup>
+</Project>
+
