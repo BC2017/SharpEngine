@@ -9,5 +9,5 @@ public readonly record struct ChunkMeshVertex(
     float NormalZ,
     float U,
     float V,
-    ushort TextureIndex);
-
+    ushort TextureIndex,
+    byte Sunlight);

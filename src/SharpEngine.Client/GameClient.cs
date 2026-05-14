@@ -7,6 +7,7 @@ using SharpEngine.Rendering;
 using SharpEngine.World.Blocks;
 using SharpEngine.World.Chunks;
 using SharpEngine.World.Generation;
+using SharpEngine.World.Lighting;
 using SharpEngine.World.Meshing;
 using SharpEngine.World.Persistence;
 using SharpEngine.World.Raycasting;
@@ -31,6 +32,7 @@ public sealed class GameClient : IGameApplication
 
     private readonly Dictionary<ChunkPosition, Chunk> _chunks = [];
     private readonly ChunkMesher _mesher = new();
+    private readonly SunlightCalculator _sunlightCalculator = new();
     private readonly PlayerController _player = new(new NumericsVector3(8.5f, 9.0f, 12.5f));
     private DebugCamera _camera = new(new Vector3(8.5f, 10.5f, 12.5f));
     private TerrainGenerator? _terrainGenerator;
@@ -59,6 +61,7 @@ public sealed class GameClient : IGameApplication
             _worldSaveStore.Metadata.WaterLevel));
         _savedChunkCount = _worldSaveStore.SavedChunkCount;
         LoadInitialChunks(renderRadius: 2);
+        RebuildWorldLighting();
         MovePlayerToSpawn();
         SyncCameraToPlayer();
         RebuildChunkMesh();
@@ -167,6 +170,7 @@ public sealed class GameClient : IGameApplication
 
         SetBlock(hit.Block, BlockIds.Air);
         _editCount++;
+        RebuildWorldLighting();
         RebuildChunkMesh();
         UpdateSelection();
     }
@@ -185,6 +189,7 @@ public sealed class GameClient : IGameApplication
 
         SetBlock(hit.Adjacent, _hotbarBlocks[_selectedHotbarSlot]);
         _editCount++;
+        RebuildWorldLighting();
         RebuildChunkMesh();
         UpdateSelection();
     }
@@ -195,7 +200,7 @@ public sealed class GameClient : IGameApplication
 
         foreach (Chunk chunk in _chunks.Values)
         {
-            combinedMesh.Append(_mesher.BuildMesh(chunk, _blocks, IsOpaqueBlock));
+            combinedMesh.Append(_mesher.BuildMesh(chunk, _blocks, IsOpaqueBlock, GetSunlight));
         }
 
         _renderer?.LoadChunkMesh(VoxelMeshConverter.ToRenderMesh(combinedMesh, _chunks.Count));
@@ -339,11 +344,20 @@ public sealed class GameClient : IGameApplication
         _editCount = 0;
         _savedChunkCount = _worldSaveStore.SavedChunkCount;
         LoadInitialChunks(_loadedRadius == 0 ? 2 : _loadedRadius);
+        RebuildWorldLighting();
         MovePlayerToSpawn();
         SyncCameraToPlayer();
         RebuildChunkMesh();
         UpdateSelection();
         _worldUiStatus = $"CREATED {worldId}";
+    }
+
+    private void RebuildWorldLighting()
+    {
+        foreach (Chunk chunk in _chunks.Values)
+        {
+            _sunlightCalculator.RebuildSunlight(chunk, _blocks);
+        }
     }
 
     private static TerrainGeneratorSettings CreateTerrainGeneratorSettings(int seed, int waterLevel)
@@ -392,6 +406,21 @@ public sealed class GameClient : IGameApplication
         }
 
         return chunk.GetBlock(position.ToLocalBlockPosition());
+    }
+
+    private byte GetSunlight(BlockPosition position)
+    {
+        if (position.Y >= Chunk.Height)
+        {
+            return Chunk.MaxLightLevel;
+        }
+
+        if (position.Y < 0 || !_chunks.TryGetValue(position.ToChunkPosition(), out Chunk? chunk))
+        {
+            return 0;
+        }
+
+        return chunk.GetSunlight(position.ToLocalBlockPosition());
     }
 
     private void SetBlock(BlockPosition position, ushort blockId)

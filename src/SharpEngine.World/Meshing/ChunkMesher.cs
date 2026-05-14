@@ -5,7 +5,11 @@ namespace SharpEngine.World.Meshing;
 
 public sealed class ChunkMesher
 {
-    public ChunkMeshData BuildMesh(Chunk chunk, BlockRegistry blocks, Func<BlockPosition, bool>? isOpaqueAt = null)
+    public ChunkMeshData BuildMesh(
+        Chunk chunk,
+        BlockRegistry blocks,
+        Func<BlockPosition, bool>? isOpaqueAt = null,
+        Func<BlockPosition, byte>? getSunlightAt = null)
     {
         ArgumentNullException.ThrowIfNull(chunk);
         ArgumentNullException.ThrowIfNull(blocks);
@@ -27,7 +31,7 @@ public sealed class ChunkMesher
                         continue;
                     }
 
-                    AddVisibleFaces(mesh, chunk, blocks, position, block.TextureIndex, isOpaqueAt);
+                    AddVisibleFaces(mesh, chunk, blocks, position, block.TextureIndex, isOpaqueAt, getSunlightAt);
                 }
             }
         }
@@ -41,7 +45,8 @@ public sealed class ChunkMesher
         BlockRegistry blocks,
         LocalBlockPosition position,
         ushort textureIndex,
-        Func<BlockPosition, bool>? isOpaqueAt)
+        Func<BlockPosition, bool>? isOpaqueAt,
+        Func<BlockPosition, byte>? getSunlightAt)
     {
         int x = position.X;
         int y = position.Y;
@@ -51,32 +56,32 @@ public sealed class ChunkMesher
 
         if (IsFaceVisible(chunk, blocks, isOpaqueAt, x, y, z + 1))
         {
-            AddSouthFace(mesh, worldX, y, worldZ, textureIndex);
+            AddSouthFace(mesh, worldX, y, worldZ, textureIndex, GetFaceSunlight(chunk, getSunlightAt, x, y, z + 1));
         }
 
         if (IsFaceVisible(chunk, blocks, isOpaqueAt, x, y, z - 1))
         {
-            AddNorthFace(mesh, worldX, y, worldZ, textureIndex);
+            AddNorthFace(mesh, worldX, y, worldZ, textureIndex, GetFaceSunlight(chunk, getSunlightAt, x, y, z - 1));
         }
 
         if (IsFaceVisible(chunk, blocks, isOpaqueAt, x - 1, y, z))
         {
-            AddWestFace(mesh, worldX, y, worldZ, textureIndex);
+            AddWestFace(mesh, worldX, y, worldZ, textureIndex, GetFaceSunlight(chunk, getSunlightAt, x - 1, y, z));
         }
 
         if (IsFaceVisible(chunk, blocks, isOpaqueAt, x + 1, y, z))
         {
-            AddEastFace(mesh, worldX, y, worldZ, textureIndex);
+            AddEastFace(mesh, worldX, y, worldZ, textureIndex, GetFaceSunlight(chunk, getSunlightAt, x + 1, y, z));
         }
 
         if (IsFaceVisible(chunk, blocks, isOpaqueAt, x, y + 1, z))
         {
-            AddTopFace(mesh, worldX, y, worldZ, textureIndex);
+            AddTopFace(mesh, worldX, y, worldZ, textureIndex, GetFaceSunlight(chunk, getSunlightAt, x, y + 1, z));
         }
 
         if (IsFaceVisible(chunk, blocks, isOpaqueAt, x, y - 1, z))
         {
-            AddBottomFace(mesh, worldX, y, worldZ, textureIndex);
+            AddBottomFace(mesh, worldX, y, worldZ, textureIndex, GetFaceSunlight(chunk, getSunlightAt, x, y - 1, z));
         }
     }
 
@@ -110,6 +115,38 @@ public sealed class ChunkMesher
         return !neighbor.IsOpaque;
     }
 
+    private static byte GetFaceSunlight(
+        Chunk chunk,
+        Func<BlockPosition, byte>? getSunlightAt,
+        int x,
+        int y,
+        int z)
+    {
+        if (y >= Chunk.Height)
+        {
+            return Chunk.MaxLightLevel;
+        }
+
+        if (y < 0)
+        {
+            return 0;
+        }
+
+        if (x is >= 0 and < Chunk.Size && z is >= 0 and < Chunk.Size)
+        {
+            return chunk.GetSunlight(new LocalBlockPosition(x, y, z));
+        }
+
+        if (getSunlightAt is null)
+        {
+            return Chunk.MaxLightLevel;
+        }
+
+        int worldX = (chunk.Position.X * Chunk.Size) + x;
+        int worldZ = (chunk.Position.Z * Chunk.Size) + z;
+        return getSunlightAt(new BlockPosition(worldX, y, worldZ));
+    }
+
     private static ChunkMeshVertex Vertex(
         float x,
         float y,
@@ -119,12 +156,13 @@ public sealed class ChunkMesher
         float normalZ,
         float u,
         float v,
-        ushort textureIndex)
+        ushort textureIndex,
+        byte sunlight)
     {
-        return new ChunkMeshVertex(x, y, z, normalX, normalY, normalZ, u, v, textureIndex);
+        return new ChunkMeshVertex(x, y, z, normalX, normalY, normalZ, u, v, textureIndex, sunlight);
     }
 
-    private static void AddSouthFace(ChunkMeshData mesh, int x, int y, int z, ushort textureIndex)
+    private static void AddSouthFace(ChunkMeshData mesh, int x, int y, int z, ushort textureIndex, byte sunlight)
     {
         const float nx = 0.0f;
         const float ny = 0.0f;
@@ -132,39 +170,39 @@ public sealed class ChunkMesher
         float z1 = z + 1.0f;
 
         mesh.AddQuad(
-            Vertex(x, y, z1, nx, ny, nz, 0.0f, 0.0f, textureIndex),
-            Vertex(x + 1.0f, y, z1, nx, ny, nz, 1.0f, 0.0f, textureIndex),
-            Vertex(x + 1.0f, y + 1.0f, z1, nx, ny, nz, 1.0f, 1.0f, textureIndex),
-            Vertex(x, y + 1.0f, z1, nx, ny, nz, 0.0f, 1.0f, textureIndex));
+            Vertex(x, y, z1, nx, ny, nz, 0.0f, 0.0f, textureIndex, sunlight),
+            Vertex(x + 1.0f, y, z1, nx, ny, nz, 1.0f, 0.0f, textureIndex, sunlight),
+            Vertex(x + 1.0f, y + 1.0f, z1, nx, ny, nz, 1.0f, 1.0f, textureIndex, sunlight),
+            Vertex(x, y + 1.0f, z1, nx, ny, nz, 0.0f, 1.0f, textureIndex, sunlight));
     }
 
-    private static void AddNorthFace(ChunkMeshData mesh, int x, int y, int z, ushort textureIndex)
+    private static void AddNorthFace(ChunkMeshData mesh, int x, int y, int z, ushort textureIndex, byte sunlight)
     {
         const float nx = 0.0f;
         const float ny = 0.0f;
         const float nz = -1.0f;
 
         mesh.AddQuad(
-            Vertex(x + 1.0f, y, z, nx, ny, nz, 0.0f, 0.0f, textureIndex),
-            Vertex(x, y, z, nx, ny, nz, 1.0f, 0.0f, textureIndex),
-            Vertex(x, y + 1.0f, z, nx, ny, nz, 1.0f, 1.0f, textureIndex),
-            Vertex(x + 1.0f, y + 1.0f, z, nx, ny, nz, 0.0f, 1.0f, textureIndex));
+            Vertex(x + 1.0f, y, z, nx, ny, nz, 0.0f, 0.0f, textureIndex, sunlight),
+            Vertex(x, y, z, nx, ny, nz, 1.0f, 0.0f, textureIndex, sunlight),
+            Vertex(x, y + 1.0f, z, nx, ny, nz, 1.0f, 1.0f, textureIndex, sunlight),
+            Vertex(x + 1.0f, y + 1.0f, z, nx, ny, nz, 0.0f, 1.0f, textureIndex, sunlight));
     }
 
-    private static void AddWestFace(ChunkMeshData mesh, int x, int y, int z, ushort textureIndex)
+    private static void AddWestFace(ChunkMeshData mesh, int x, int y, int z, ushort textureIndex, byte sunlight)
     {
         const float nx = -1.0f;
         const float ny = 0.0f;
         const float nz = 0.0f;
 
         mesh.AddQuad(
-            Vertex(x, y, z, nx, ny, nz, 0.0f, 0.0f, textureIndex),
-            Vertex(x, y, z + 1.0f, nx, ny, nz, 1.0f, 0.0f, textureIndex),
-            Vertex(x, y + 1.0f, z + 1.0f, nx, ny, nz, 1.0f, 1.0f, textureIndex),
-            Vertex(x, y + 1.0f, z, nx, ny, nz, 0.0f, 1.0f, textureIndex));
+            Vertex(x, y, z, nx, ny, nz, 0.0f, 0.0f, textureIndex, sunlight),
+            Vertex(x, y, z + 1.0f, nx, ny, nz, 1.0f, 0.0f, textureIndex, sunlight),
+            Vertex(x, y + 1.0f, z + 1.0f, nx, ny, nz, 1.0f, 1.0f, textureIndex, sunlight),
+            Vertex(x, y + 1.0f, z, nx, ny, nz, 0.0f, 1.0f, textureIndex, sunlight));
     }
 
-    private static void AddEastFace(ChunkMeshData mesh, int x, int y, int z, ushort textureIndex)
+    private static void AddEastFace(ChunkMeshData mesh, int x, int y, int z, ushort textureIndex, byte sunlight)
     {
         const float nx = 1.0f;
         const float ny = 0.0f;
@@ -172,13 +210,13 @@ public sealed class ChunkMesher
         float x1 = x + 1.0f;
 
         mesh.AddQuad(
-            Vertex(x1, y, z + 1.0f, nx, ny, nz, 0.0f, 0.0f, textureIndex),
-            Vertex(x1, y, z, nx, ny, nz, 1.0f, 0.0f, textureIndex),
-            Vertex(x1, y + 1.0f, z, nx, ny, nz, 1.0f, 1.0f, textureIndex),
-            Vertex(x1, y + 1.0f, z + 1.0f, nx, ny, nz, 0.0f, 1.0f, textureIndex));
+            Vertex(x1, y, z + 1.0f, nx, ny, nz, 0.0f, 0.0f, textureIndex, sunlight),
+            Vertex(x1, y, z, nx, ny, nz, 1.0f, 0.0f, textureIndex, sunlight),
+            Vertex(x1, y + 1.0f, z, nx, ny, nz, 1.0f, 1.0f, textureIndex, sunlight),
+            Vertex(x1, y + 1.0f, z + 1.0f, nx, ny, nz, 0.0f, 1.0f, textureIndex, sunlight));
     }
 
-    private static void AddTopFace(ChunkMeshData mesh, int x, int y, int z, ushort textureIndex)
+    private static void AddTopFace(ChunkMeshData mesh, int x, int y, int z, ushort textureIndex, byte sunlight)
     {
         const float nx = 0.0f;
         const float ny = 1.0f;
@@ -186,22 +224,22 @@ public sealed class ChunkMesher
         float y1 = y + 1.0f;
 
         mesh.AddQuad(
-            Vertex(x, y1, z + 1.0f, nx, ny, nz, 0.0f, 0.0f, textureIndex),
-            Vertex(x + 1.0f, y1, z + 1.0f, nx, ny, nz, 1.0f, 0.0f, textureIndex),
-            Vertex(x + 1.0f, y1, z, nx, ny, nz, 1.0f, 1.0f, textureIndex),
-            Vertex(x, y1, z, nx, ny, nz, 0.0f, 1.0f, textureIndex));
+            Vertex(x, y1, z + 1.0f, nx, ny, nz, 0.0f, 0.0f, textureIndex, sunlight),
+            Vertex(x + 1.0f, y1, z + 1.0f, nx, ny, nz, 1.0f, 0.0f, textureIndex, sunlight),
+            Vertex(x + 1.0f, y1, z, nx, ny, nz, 1.0f, 1.0f, textureIndex, sunlight),
+            Vertex(x, y1, z, nx, ny, nz, 0.0f, 1.0f, textureIndex, sunlight));
     }
 
-    private static void AddBottomFace(ChunkMeshData mesh, int x, int y, int z, ushort textureIndex)
+    private static void AddBottomFace(ChunkMeshData mesh, int x, int y, int z, ushort textureIndex, byte sunlight)
     {
         const float nx = 0.0f;
         const float ny = -1.0f;
         const float nz = 0.0f;
 
         mesh.AddQuad(
-            Vertex(x, y, z, nx, ny, nz, 0.0f, 0.0f, textureIndex),
-            Vertex(x + 1.0f, y, z, nx, ny, nz, 1.0f, 0.0f, textureIndex),
-            Vertex(x + 1.0f, y, z + 1.0f, nx, ny, nz, 1.0f, 1.0f, textureIndex),
-            Vertex(x, y, z + 1.0f, nx, ny, nz, 0.0f, 1.0f, textureIndex));
+            Vertex(x, y, z, nx, ny, nz, 0.0f, 0.0f, textureIndex, sunlight),
+            Vertex(x + 1.0f, y, z, nx, ny, nz, 1.0f, 0.0f, textureIndex, sunlight),
+            Vertex(x + 1.0f, y, z + 1.0f, nx, ny, nz, 1.0f, 1.0f, textureIndex, sunlight),
+            Vertex(x, y, z + 1.0f, nx, ny, nz, 0.0f, 1.0f, textureIndex, sunlight));
     }
 }
