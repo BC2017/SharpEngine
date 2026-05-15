@@ -3,7 +3,7 @@ namespace SharpEngine.World.Chunks;
 public sealed class Chunk
 {
     public const int Size = 16;
-    public const int Height = 16;
+    public const int Height = 32;
     public const byte MaxLightLevel = 15;
 
     private readonly ushort[] _blocks = new ushort[Size * Height * Size];

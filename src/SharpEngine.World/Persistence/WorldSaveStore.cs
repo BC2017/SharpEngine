@@ -71,7 +71,7 @@ public sealed class WorldSaveStore
         ValidateChunkData(data, position, chunkPath);
 
         Chunk chunk = new(position);
-        chunk.ReplaceBlocks(data.Blocks);
+        chunk.ReplaceBlocks(ConvertSavedBlocks(data));
         return chunk;
     }
 
@@ -162,14 +162,38 @@ public sealed class WorldSaveStore
             throw new InvalidDataException($"Chunk save '{chunkPath}' contains the wrong chunk position.");
         }
 
-        if (data.Size != Chunk.Size || data.Height != Chunk.Height)
+        if (data.Size != Chunk.Size || data.Height is <= 0 or > Chunk.Height)
         {
             throw new InvalidDataException($"Chunk save '{chunkPath}' has unsupported dimensions {data.Size}x{data.Height}.");
         }
 
-        if (data.Blocks.Length != Chunk.Size * Chunk.Height * Chunk.Size)
+        if (data.Blocks.Length != Chunk.Size * data.Height * Chunk.Size)
         {
             throw new InvalidDataException($"Chunk save '{chunkPath}' has {data.Blocks.Length} blocks.");
         }
+    }
+
+    private static ushort[] ConvertSavedBlocks(ChunkSaveData data)
+    {
+        if (data.Height == Chunk.Height)
+        {
+            return data.Blocks;
+        }
+
+        ushort[] blocks = new ushort[Chunk.Size * Chunk.Height * Chunk.Size];
+        int savedLayerStride = Chunk.Size * Chunk.Size;
+        int targetLayerStride = Chunk.Size * Chunk.Size;
+
+        for (int y = 0; y < data.Height; y++)
+        {
+            Array.Copy(
+                data.Blocks,
+                y * savedLayerStride,
+                blocks,
+                y * targetLayerStride,
+                savedLayerStride);
+        }
+
+        return blocks;
     }
 }

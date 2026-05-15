@@ -93,17 +93,21 @@ AssertEqual(generatedA.GetBlock(new LocalBlockPosition(4, generator.GetHeight(20
 
 int minGeneratedHeight = int.MaxValue;
 int maxGeneratedHeight = int.MinValue;
-for (int z = -32; z < 32; z++)
+int maxAdjacentHeightDelta = 0;
+for (int z = -64; z < 64; z++)
 {
-    for (int x = -32; x < 32; x++)
+    for (int x = -64; x < 64; x++)
     {
         int height = generator.GetHeight(x, z);
         minGeneratedHeight = Math.Min(minGeneratedHeight, height);
         maxGeneratedHeight = Math.Max(maxGeneratedHeight, height);
+        maxAdjacentHeightDelta = Math.Max(maxAdjacentHeightDelta, Math.Abs(height - generator.GetHeight(x + 1, z)));
+        maxAdjacentHeightDelta = Math.Max(maxAdjacentHeightDelta, Math.Abs(height - generator.GetHeight(x, z + 1)));
     }
 }
 
-AssertTrue(maxGeneratedHeight - minGeneratedHeight >= 5, "Expected Perlin terrain to vary by at least five blocks across the sample area.");
+AssertTrue(maxGeneratedHeight - minGeneratedHeight >= 12, "Expected terrain to use the taller world height for meaningful elevation.");
+AssertTrue(maxAdjacentHeightDelta <= 4, $"Expected smoothed terrain to avoid sharp cliffs, got adjacent height delta {maxAdjacentHeightDelta}.");
 
 WorldVoxelRaycastHit? worldHit = VoxelRaycaster.RaycastWorld(
     new System.Numerics.Vector3(20.5f, Chunk.Height + 1.0f, -27.5f),

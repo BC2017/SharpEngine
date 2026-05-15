@@ -13,13 +13,8 @@ public sealed class TerrainGenerator
 
     public int GetHeight(int worldX, int worldZ)
     {
-        float continentalness = FractalPerlin(worldX * 0.028f, worldZ * 0.028f, octaves: 4, persistence: 0.56f);
-        float hills = RidgedPerlin((worldX + 211) * 0.062f, (worldZ - 157) * 0.062f, octaves: 3, persistence: 0.50f);
-        float detail = FractalPerlin((worldX - 73) * 0.18f, (worldZ + 43) * 0.18f, octaves: 2, persistence: 0.45f);
-
-        float elevatedLand = MathF.Max(continentalness, -0.35f);
-        float height = 5.5f + (elevatedLand * 4.7f) + (hills * 3.1f) + (detail * 0.9f);
-        return Math.Clamp((int)MathF.Round(height), 2, Chunk.Height - 4);
+        float height = SmoothedHeight(worldX, worldZ);
+        return Math.Clamp((int)MathF.Round(height), 2, Chunk.Height - 6);
     }
 
     public Chunk GenerateChunk(ChunkPosition position)
@@ -105,6 +100,33 @@ public sealed class TerrainGenerator
                 }
             }
         }
+    }
+
+    private float SmoothedHeight(int worldX, int worldZ)
+    {
+        float total = RawHeight(worldX, worldZ) * 4.0f;
+        total += RawHeight(worldX - 1, worldZ);
+        total += RawHeight(worldX + 1, worldZ);
+        total += RawHeight(worldX, worldZ - 1);
+        total += RawHeight(worldX, worldZ + 1);
+        total += RawHeight(worldX - 1, worldZ - 1) * 0.5f;
+        total += RawHeight(worldX + 1, worldZ - 1) * 0.5f;
+        total += RawHeight(worldX - 1, worldZ + 1) * 0.5f;
+        total += RawHeight(worldX + 1, worldZ + 1) * 0.5f;
+        return total / 10.0f;
+    }
+
+    private float RawHeight(int worldX, int worldZ)
+    {
+        float continentalness = FractalPerlin(worldX * 0.010f, worldZ * 0.010f, octaves: 5, persistence: 0.58f);
+        float rollingHills = FractalPerlin((worldX + 193) * 0.032f, (worldZ - 71) * 0.032f, octaves: 4, persistence: 0.52f);
+        float mountainMask = Smooth01(FractalPerlin((worldX - 521) * 0.0075f, (worldZ + 311) * 0.0075f, octaves: 3, persistence: 0.60f));
+        float mountains = Smooth01(RidgedPerlin((worldX + 877) * 0.024f, (worldZ - 443) * 0.024f, octaves: 4, persistence: 0.55f));
+
+        float elevatedLand = Smooth01((continentalness * 0.75f) + 0.22f);
+        float foothills = rollingHills * 3.4f;
+        float mountainHeight = mountains * mountainMask * 10.5f;
+        return 4.0f + (elevatedLand * 11.0f) + foothills + mountainHeight;
     }
 
     private float FractalPerlin(float x, float z, int octaves, float persistence)
@@ -197,6 +219,12 @@ public sealed class TerrainGenerator
     private static float Fade(float value)
     {
         return value * value * value * (value * ((value * 6.0f) - 15.0f) + 10.0f);
+    }
+
+    private static float Smooth01(float value)
+    {
+        value = Math.Clamp((value + 1.0f) * 0.5f, 0.0f, 1.0f);
+        return value * value * (3.0f - (2.0f * value));
     }
 
     private static float Lerp(float a, float b, float amount)
